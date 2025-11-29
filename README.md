@@ -62,19 +62,25 @@ npm run dev
 
 ## 🐳 Docker Compose 部署
 
-仓库包含完整的容器化脚本，可一键启动：
+为了方便一次性搭建，可以按以下三条命令完成：
 
 ```bash
-# 构建镜像
-docker compose build
+# 1. 拉仓库并进入
+mkdir nano-banana && cd nano-banana && git clone https://github.com/hahaha8459812/nano-banana-webui.git . 
 
-# 后台运行
-docker compose up -d
+# 2. 准备配置（复制示例并根据需求修改密码/API Key/模板等）
+cp server/config/app.config.example.json server/config/app.config.json
+vim server/config/app.config.json
+
+# 3. 构建并启动
+docker compose up -d --build
 ```
 
-- `backend` 服务会挂载 `server/config/app.config.json`（默认只读），并将图库数据与索引分别持久化到 `gallery-data`、`gallery-meta` 卷中。
-- `frontend` 在构建阶段会注入 `VITE_API_BASE_URL=http://backend:51130`，生成的静态文件由 Nginx 提供；若后端地址不同，可修改 `docker-compose.yml` 的 `build.args`。
-- 默认映射 `3000:80`（前端）和 `51130:51130`（后端），可按需修改。
+> 如无 vim，可用其他编辑器（nano、notepad 等）修改 `server/config/app.config.json`。
+
+- `backend` 服务挂载 `server/config/app.config.json`（默认只读），图库原图与索引分别持久化到名为 `gallery-data`、`gallery-meta` 的卷里；
+- `frontend` 构建阶段注入 `VITE_API_BASE_URL=http://backend:51130`，若后端要改端口，可同时调整 `docker-compose.yml` 中的映射与 `build.args`；
+- 默认暴露 `3000:80`（前端）和 `51130:51130`（后端），可按需改动。
 
 ## 🧑‍💻 使用流程
 
