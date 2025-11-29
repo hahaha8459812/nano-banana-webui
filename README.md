@@ -1,80 +1,94 @@
 # NanoBanana Web UI
 
-基于 **Vue 3 + TypeScript + TailwindCSS + Vite** 的多模态生图工作台，后端内置 Node.js 服务负责安全持久化 API 密钥、执行 OpenRouter/Gemini 请求，并将结果同步到图库。
+基于 **Vue 3 + TypeScript + TailwindCSS + Vite** 的多模态生图工作台，后端由 Node.js 服务负责安全保存 API 密钥、发起 OpenRouter/Gemini 请求并把结果写入图库。
 
 ## ✨ 主要特性
 
-- 🔐 **密码登录 + 角色分离**：API Key、安全配置都存放在服务器，前端仅需密码即可启用工作区。
-- 🧩 **多套 API 配置**：支持在配置文件中维护多个 endpoint/model/key 组合，前端可随时切换并拉取模型列表。
-- 🧠 **Gemini/OpenRouter 兼容**：后端自动构造兼容的请求体，支持 Gemini 3 Pro Image 额外参数、宽高比、Google Search 等选项。
-- 🗂 **工作区 + 图库**：生成结果连同模型文本回复自动同步到服务器图库并在前端实时展示，可再次下载或二次创作。
-- 📝 **模板管理**：预设提示词改为服务器配置，前端可新增/编辑/删除模板，无需改动代码重启即可应用。
+- 🔐 密码登录 + 服务器密钥保存：前端用户仅需密码即可使用，API Key 永远不离开服务器。
+- 🧩 多套 API 配置：后端配置文件中可维护多组 endpoint/model/key，前端随时切换。
+- 🧠 Gemini/OpenRouter 兼容：支持 Gemini 3 Pro Image 专属参数、宽高比、Google Search 等。
+- 🗂 工作区 + 图库：生成的图片和文本回复会自动同步到图库并可再次下载或推回创作区。
+- 📝 模板管理：提示词模板存储在配置文件里，支持在前端新增/编辑/删除。
 
 ## 📁 目录结构
 
 ```
 .
-├─ package.json          # 前端依赖及脚本
-├─ server/               # Node.js 后端
-│  ├─ index.js           # Express 入口，静默调用 OpenRouter/Gemini
-│  ├─ package.json       # 后端依赖
-│  ├─ config/
-│  │  └─ app.config.example.json  # 配置样例，复制为 app.config.json 后使用
-│  ├─ data/
-│  │  └─ gallery.json    # 图库索引（运行时自动生成）
-│  └─ gallery/           # 实际图片文件（运行时自动生成）
-├─ src/                  # 前端源码
-│  ├─ components/        # 工作区、图库、配置面板等 Vue 组件
-│  ├─ config/client.ts   # API Base URL 配置
-│  ├─ services/backend.ts# 前端调用后端接口的封装
-│  └─ App.vue            # 顶层界面（登录/工作区/图库）
+├─ package.json               # 前端依赖与脚本
+├─ server/
+│  ├─ index.js                # Express 服务入口
+│  ├─ package.json            # 后端依赖
+│  ├─ config/app.config.example.json  # 配置示例
+│  ├─ data/                   # 图库索引（运行时自动生成）
+│  └─ gallery/                # 图库原图（运行时自动生成）
+├─ src/                       # 前端源码
+│  ├─ components/             # Vue 组件
+│  ├─ config/client.ts        # 前端 API Base URL
+│  ├─ services/backend.ts     # 调用后端的封装
+│  └─ App.vue                 # 顶层界面
+├─ Dockerfile.frontend
+├─ Dockerfile.server
+├─ docker-compose.yml
 └─ README.md
 ```
 
-## ⚙️ 服务器配置（重要）
+## ⚙️ 服务器配置
 
-1. 复制 `server/config/app.config.example.json` 为 `app.config.json`，根据需要修改字段：
-    - `auth.password` 或 `auth.passwordHash`：登录密码（可直接明文，也可填入 bcrypt hash）。
-    - `auth.jwtSecret`：任意随机字符串，用于签发 token。
-    - `apiConfigs`：数组，每个对象包含 `id/label/endpoint/model/apiKey/description`。
-    - `templates`：初始提示词模板，可在运行时通过前端再编辑。
-2. 建议在服务器上执行 `npm install` 并使用 PM2/systemd 等守护方式运行 `node server/index.js`。
+1. 复制 `server/config/app.config.example.json` 为 `app.config.json`；
+2. 根据需要填写：
+   - `auth.password` 或 `auth.passwordHash`（任选其一）；
+   - `auth.jwtSecret`：任意随机字符串即可；
+   - `apiConfigs`：多套 API endpoint/model/apiKey；
+   - `templates`：初始提示词模板；
+3. 运行 `npm install && npm run start`（或用 PM2/systemd 等守护）即可启动后端；图库图片会写入 `server/gallery/`，索引写入 `server/data/gallery.json`，记得备份。
 
-> **提示**：后端会把生成的图片存到 `server/gallery/`，索引存到 `server/data/gallery.json`，仓库已忽略这些文件，部署时请自行做好备份策略。
-
-## 🚀 启动步骤
+## 🚀 本地启动
 
 ```bash
-# 安装前端依赖
+# 根目录安装前端依赖
 npm install
 
-# 安装并启动后端
+# 启动后端
 cd server
 npm install
-npm run start   # 或 npm run dev（nodemon 自动重启）
+npm run start
 
-# 启动前端开发服务器
+# 另开终端运行前端
 cd ..
 npm run dev
 ```
 
-前端默认走 `http://localhost:3000`，后端监听 `http://localhost:51130`。如需自定义后端地址，可在 `.env` 中设置 `VITE_API_BASE_URL`。
+默认前端监听 `http://localhost:3000`，后端在 `http://localhost:51130`。如需自定义后端地址，可在 `.env` 中设置 `VITE_API_BASE_URL`。
+
+## 🐳 Docker Compose 部署
+
+仓库包含完整的容器化脚本，可一键启动：
+
+```bash
+# 构建镜像
+docker compose build
+
+# 后台运行
+docker compose up -d
+```
+
+- `backend` 服务会挂载 `server/config/app.config.json`（默认只读），并将图库数据与索引分别持久化到 `gallery-data`、`gallery-meta` 卷中。
+- `frontend` 在构建阶段会注入 `VITE_API_BASE_URL=http://backend:51130`，生成的静态文件由 Nginx 提供；若后端地址不同，可修改 `docker-compose.yml` 的 `build.args`。
+- 默认映射 `3000:80`（前端）和 `51130:51130`（后端），可按需修改。
 
 ## 🧑‍💻 使用流程
 
-1. 访问前端后输入服务器配置的密码登录；
-2. 在“API 配置”面板选择一套后端保存的 endpoint + model；需要时可以点击“获取模型列表”按钮，由后端带着密钥去请求；
-3. 进入“工作区”上传参考图/选择模板或自定义提示词，可分别执行“纯提示词”或“图文混合”生成；
-4. 生成完毕后，图片 + 文本回复会自动保存到服务器图库，前端的“图库”页签会即时展示；
-5. 如需反复创作，可直接把结果推回上传列表，或者在模板面板中编辑/新增提示词（会写回配置文件）；
-6. 若需对生成内容做备份，直接下载 `server/gallery` 目录，或在图库界面逐个下载。
+1. 打开前端并输入部署者设置的密码；
+2. 在“API 配置”卡片中选择需要的 endpoint/model，若需刷新模型列表可点击“获取模型列表”；
+3. 在“工作区”上传参考图、选择提示词模板或编写自定义提示词；
+4. 选择“纯提示词”或“图文混合”生成，结果会显示在下方并写入图库；
+5. “图库”页签可查看全部历史作品、下载图片或复制文本回复。
 
 ## 📝 额外说明
 
-- `ResultDisplay` 组件会展示最新图片与模型回复文本，并允许直接下载或“二次创作”。
-- `StylePromptSelector` 新增模板管理表单，每次操作都会通过后端写入 `app.config.json`，无需重启。若多人协作，注意做好文件同步。
-- `GalleryView` 只展示元数据和静态链接，如果要对图像做 CDN/OSS 托管，可把 `server/gallery` 指向真正的存储目录，再通过 Nginx 等挂载。
-- 默认开放的 API 端口带有 CORS 头，如需上生产环境，建议在反向代理层做 IP 白名单或 Basic Auth，以防止密码被撞库。
+- `server/gallery/` 与 `server/data/gallery.json` 默认被 `.gitignore` 忽略，生产环境请挂载到独立存储。
+- 若需要更严格的安全策略，可在反向代理层再加一层 Basic Auth 或 IP 白名单。
+- 任何模板的增删改都会立即写入 `app.config.json`，无需重启容器或服务。
 
 ## 📄 许可证
 
