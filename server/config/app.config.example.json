@@ -1,0 +1,34 @@
+{
+    "auth": {
+        "password": "changeme",
+        "passwordHash": "",
+        "jwtSecret": "please-change-me",
+        "tokenExpiresIn": "12h"
+    },
+    "apiConfigs": [
+        {
+            "id": "openrouter-default",
+            "label": "OpenRouter 免费模型",
+            "endpoint": "https://openrouter.ai/api/v1/chat/completions",
+            "model": "google/gemini-2.5-flash-image-preview:free",
+            "description": "默认使用 OpenRouter 免费 Gemini 2.5 Flash Image 模型",
+            "apiKey": "sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        }
+    ],
+    "templates": [
+        {
+            "id": "figurine",
+            "title": "潮玩手办风格",
+            "description": "将角色转化为逼真手办，包含包装盒和制作过程细节",
+            "prompt": "Using the nano-banana model,create a 1/7 scale commercialized figurine of the characters in the picture, in a realistic style, in a real environment. The figurine is placed on a computer desk. The figurine has a round transparent acrylic base, with no text on the base. The content on the computer screen is the Zbrush modeling process of this figurine. Next to the computer screen is a BANDAI-style toy packaging box printed with the original artwork., The packaging features two-dimensional flat illustrations.Maintain consistency with the image",
+            "image": "/1.png"
+        },
+        {
+            "id": "fastfood-solitude",
+            "title": "快餐店的孤独",
+            "description": "以动漫角色的孤独与现实情侣对比，营造戏剧化场景",
+            "prompt": "A cinematic scene inside a fast food restaurant at night. Foreground: a lonely table with burgers and fries, and a smartphone shown large and sharp on the table, clearly displaying the uploaded anime/game character image. A hand is reaching for food, symbolizing solitude. Midground: in the blurred background, a couple is sitting together and kiss. One of them is represented as a cosplayer version of the uploaded character...",
+            "image": "/2.png"
+        }
+    ]
+}
