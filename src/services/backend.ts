@@ -1,5 +1,6 @@
 import { getApiBaseUrl } from '../config/client'
 import type {
+    ApiConfigListResponse,
     ApiConfigSummary,
     ApiModel,
     CreateApiConfigPayload,
@@ -65,8 +66,7 @@ export async function verifySession(token: string) {
 }
 
 export async function fetchApiConfigs(token: string) {
-    const data = await request<{ configs: ApiConfigSummary[] }>('/api/api-configs', { method: 'GET' }, token)
-    return data.configs || []
+    return request<ApiConfigListResponse>('/api/api-configs', { method: 'GET' }, token)
 }
 
 export async function createApiConfig(token: string, payload: CreateApiConfigPayload) {
@@ -82,6 +82,10 @@ export async function updateApiConfig(token: string, id: string, payload: Update
 export async function deleteApiConfig(token: string, id: string) {
     const data = await request<{ config: ApiConfigSummary }>(`/api/api-configs/${id}`, { method: 'DELETE' }, token)
     return data.config
+}
+
+export async function setDefaultApiConfig(token: string, id: string) {
+    return request<{ defaultConfigId: string }>(`/api/api-configs/${id}/default`, { method: 'POST' }, token)
 }
 
 export async function fetchTemplates(token: string) {
@@ -120,4 +124,8 @@ export async function generateImage(token: string, payload: GenerateRequest) {
 export async function fetchGallery(token: string) {
     const data = await request<{ entries: GalleryEntry[] }>('/api/gallery', { method: 'GET' }, token)
     return data.entries || []
+}
+
+export async function deleteGalleryEntry(token: string, id: string) {
+    return request<{ entry: GalleryEntry }>(`/api/gallery/${id}`, { method: 'DELETE' }, token)
 }

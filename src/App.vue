@@ -103,6 +103,7 @@
                 <div class="mb-6">
                     <ApiConfigSelector
                         :configs="apiConfigs"
+                        :default-config-id="defaultApiConfigId"
                         :selected-config-id="selectedConfigId"
                         :selected-model-id="selectedModelId"
                         :model-options="modelOptions"
@@ -115,6 +116,7 @@
                         @create-api-config="handleCreateApiConfig"
                         @update-api-config="handleUpdateApiConfig"
                         @delete-api-config="handleDeleteApiConfig"
+                        @set-default-api-config="handleSetDefaultApiConfig"
                     />
                 </div>
 
@@ -220,7 +222,7 @@
                 </div>
 
                 <div v-else class="mb-6">
-                    <GalleryView :entries="galleryEntries" @refresh="loadGallery" />
+                    <GalleryView :entries="galleryEntries" @refresh="loadGallery" @delete-entry="handleDeleteGalleryEntry" />
                 </div>
 
                 <Footer />
@@ -243,6 +245,7 @@ import {
     createApiConfig as createApiConfigRequest,
     createTemplate,
     deleteApiConfig as deleteApiConfigRequest,
+    deleteGalleryEntry as deleteGalleryEntryRequest,
     deleteTemplate as deleteTemplateRequest,
     fetchApiConfigs,
     fetchGallery,
@@ -250,6 +253,7 @@ import {
     fetchTemplates,
     generateImage,
     login,
+    setDefaultApiConfig as setDefaultApiConfigRequest,
     updateApiConfig as updateApiConfigRequest,
     updateTemplate as updateTemplateRequest,
     verifySession
@@ -276,6 +280,7 @@ const isAuthenticated = computed(() => Boolean(authToken.value))
 const viewMode = ref<'workspace' | 'gallery'>('workspace')
 
 const apiConfigs = ref<ApiConfigSummary[]>([])
+const defaultApiConfigId = ref('')
 const selectedConfigId = ref(LocalStorage.getSelectedConfigId())
 const selectedModelId = ref('')
 const modelOptions = ref<ModelOption[]>([])
@@ -509,13 +514,22 @@ const loadAllData = async () => {
 
 const loadConfigs = async () => {
     if (!authToken.value) return
-    const configs = await fetchApiConfigs(authToken.value)
+    const data = await fetchApiConfigs(authToken.value)
+    const configs = data.configs || []
     apiConfigs.value = configs
+    defaultApiConfigId.value = data.defaultConfigId || ''
     if (!configs.length) {
         selectedConfigId.value = ''
         return
     }
-    if (!configs.find(config => config.id === selectedConfigId.value)) {
+    const stored = LocalStorage.getSelectedConfigId()
+    const storedValid = stored && configs.find(config => config.id === stored)
+    const defaultValid = defaultApiConfigId.value && configs.find(config => config.id === defaultApiConfigId.value)
+    if (storedValid) {
+        selectedConfigId.value = stored as string
+    } else if (defaultValid) {
+        selectedConfigId.value = defaultApiConfigId.value
+    } else if (!configs.find(config => config.id === selectedConfigId.value)) {
         selectedConfigId.value = configs[0].id
     }
 }
@@ -775,6 +789,18 @@ const handleDeleteTemplate = async (id: string) => {
     }
 }
 
+const handleDeleteGalleryEntry = async (id: string) => {
+    if (!authToken.value) return
+    try {
+        await deleteGalleryEntryRequest(authToken.value, id)
+        galleryEntries.value = galleryEntries.value.filter(entry => entry.id !== id)
+        showNotice('success', '已删除图库记录')
+    } catch (error) {
+        const message = error instanceof Error ? error.message : '删除图库记录失败'
+        showNotice('error', message)
+    }
+}
+
 const withServerBase = (path: string) => {
     if (!path) return path
     if (path.startsWith('http') || path.startsWith('data:')) return path
@@ -848,6 +874,20 @@ const handleDeleteApiConfig = async (id: string) => {
         },
         '无法删除 API 配置',
         'API 配置已删除'
+    )
+}
+
+const handleSetDefaultApiConfig = async (id: string) => {
+    await mutateApiConfig(
+        async () => {
+            if (!authToken.value) return
+            const data = await setDefaultApiConfigRequest(authToken.value, id)
+            defaultApiConfigId.value = data.defaultConfigId || id
+            selectedConfigId.value = id
+            LocalStorage.saveSelectedConfigId(id)
+        },
+        '无法设置默认 API 配置',
+        '默认 API 配置已更新'
     )
 }
 

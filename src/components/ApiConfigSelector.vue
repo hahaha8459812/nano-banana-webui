@@ -52,7 +52,10 @@
                     />
                     <div class="flex-1">
                         <div class="font-bold text-base flex items-center justify-between gap-2">
-                            <span>{{ config.label }}</span>
+                            <div class="flex items-center gap-2">
+                                <span>{{ config.label }}</span>
+                                <span v-if="defaultConfigId === config.id" class="text-xs px-2 py-0.5 border border-black rounded-full bg-white">默认</span>
+                            </div>
                             <div class="flex gap-1">
                                 <button
                                     class="text-xs px-2 py-1 border border-black rounded bg-white hover:bg-gray-100"
@@ -67,6 +70,14 @@
                                     @click.stop="confirmDelete(config)"
                                 >
                                     🗑️ 删除
+                                </button>
+                                <button
+                                    class="text-xs px-2 py-1 border border-black rounded bg-white hover:bg-gray-100 text-blue-600 disabled:text-gray-400 disabled:border-gray-300 disabled:bg-gray-100"
+                                    type="button"
+                                    :disabled="defaultConfigId === config.id || managementLoading"
+                                    @click.stop="$emit('set-default-api-config', config.id)"
+                                >
+                                    ⭐ 设为默认
                                 </button>
                             </div>
                         </div>
@@ -154,11 +165,12 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, ref } from 'vue'
+import { reactive, ref, computed } from 'vue'
 import type { ApiConfigSummary, ModelOption } from '../types'
 
 const props = defineProps<{
     configs: ApiConfigSummary[]
+    defaultConfigId: string
     selectedConfigId: string
     selectedModelId: string
     modelOptions: ModelOption[]
@@ -192,8 +204,10 @@ const emit = defineEmits<{
         }
     ]
     'delete-api-config': [id: string]
+    'set-default-api-config': [id: string]
 }>()
 
+const defaultConfigId = computed(() => props.defaultConfigId)
 const showEditor = ref(false)
 const editorMode = ref<'create' | 'edit'>('create')
 const form = reactive({

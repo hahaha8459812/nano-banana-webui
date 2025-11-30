@@ -54,6 +54,11 @@ export interface ApiConfigSummary {
     description?: string
 }
 
+export interface ApiConfigListResponse {
+    configs: ApiConfigSummary[]
+    defaultConfigId?: string
+}
+
 export interface CreateApiConfigPayload {
     id: string
     label: string

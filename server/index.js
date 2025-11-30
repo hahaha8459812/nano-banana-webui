@@ -179,8 +179,9 @@ app.get('/api/api-configs', authMiddleware, async (req, res) => {
     try {
         const config = await loadConfig()
         const configs = (config.apiConfigs || []).map(sanitizeConfig)
+        const defaultConfigId = config.defaultApiConfigId || ''
         logInfo('api-configs', `?? ${configs.length} ? API ??`)
-        res.json({ configs })
+        res.json({ configs, defaultConfigId })
     } catch (error) {
         logError('api-configs', '??????', error)
         res.status(500).json({ message: '???? API ??' })
@@ -208,6 +209,9 @@ app.post('/api/api-configs', authMiddleware, async (req, res) => {
         }
         list.push(newItem)
         config.apiConfigs = list
+        if (!config.defaultApiConfigId) {
+            config.defaultApiConfigId = newItem.id
+        }
         await saveConfig(config)
         logInfo('api-configs', `???? ${newItem.id}`)
         res.json({ config: sanitizeConfig(newItem) })
@@ -258,12 +262,34 @@ app.delete('/api/api-configs/:id', authMiddleware, async (req, res) => {
         }
         const removed = list.splice(index, 1)[0]
         config.apiConfigs = list
+        if (config.defaultApiConfigId === removed.id) {
+            config.defaultApiConfigId = list[0]?.id || ''
+        }
         await saveConfig(config)
         logInfo('api-configs', `???? ${removed.id}`)
         res.json({ config: sanitizeConfig(removed) })
     } catch (error) {
         logError('api-configs', '??????', error)
         res.status(500).json({ message: '???? API ??' })
+    }
+})
+
+
+app.post('/api/api-configs/:id/default', authMiddleware, async (req, res) => {
+    try {
+        const config = await loadConfig()
+        const list = config.apiConfigs || []
+        const exists = list.find(item => item.id === req.params.id)
+        if (!exists) {
+            return res.status(404).json({ message: '??????' })
+        }
+        config.defaultApiConfigId = exists.id
+        await saveConfig(config)
+        logInfo('api-configs', `??????????? ${exists.id}`)
+        res.json({ defaultConfigId: exists.id })
+    } catch (error) {
+        logError('api-configs', '??????????????', error)
+        res.status(500).json({ message: '?????????? API ?????' })
     }
 })
 
@@ -626,6 +652,30 @@ async function saveImageToGallery(imageSource) {
     const dataUrl = `data:image/${extension};base64,${buffer.toString('base64')}`
     return { fileName, imagePath: `/gallery/${fileName}`, dataUrl }
 }
+
+
+app.delete('/api/gallery/:id', authMiddleware, async (req, res) => {
+    try {
+        const entries = await loadGallery()
+        const index = entries.findIndex(entry => entry.id === req.params.id)
+        if (index === -1) {
+            return res.status(404).json({ message: '?????????' })
+        }
+        const removed = entries.splice(index, 1)[0]
+        await saveGallery(entries)
+        if (removed.fileName) {
+            const filePath = path.join(GALLERY_DIR, removed.fileName)
+            if (fs.existsSync(filePath)) {
+                await fs.promises.unlink(filePath).catch(() => null)
+            }
+        }
+        logInfo('gallery', `?????? ${removed.id}`)
+        res.json({ entry: removed })
+    } catch (error) {
+        logError('gallery', '?????????', error)
+        res.status(500).json({ message: '???????????' })
+    }
+})
 
 app.listen(PORT, () => {
     console.log(`[server] 服务已启动，端口 ${PORT}`)

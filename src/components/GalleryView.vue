@@ -42,6 +42,13 @@
                         >
                             ⬇️ 下载
                         </a>
+                        <button
+                            class="px-3 py-2 text-sm border-2 border-black rounded-lg bg-white hover:bg-red-100 text-red-600 font-semibold"
+                            type="button"
+                            @click="$emit('delete-entry', item.id)"
+                        >
+                            🗑️ 删除
+                        </button>
                     </div>
                 </div>
             </article>
@@ -58,6 +65,7 @@ defineProps<{
 
 defineEmits<{
     refresh: []
+    'delete-entry': [id: string]
 }>()
 
 const formatDate = (value: string) => {
