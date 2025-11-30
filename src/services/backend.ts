@@ -18,17 +18,28 @@ async function request<T>(path: string, options: RequestInit = {}, token?: strin
         headers.Authorization = `Bearer ${token}`
     }
 
-    const response = await fetch(`${API_BASE_URL}${path}`, {
-        ...options,
-        headers
-    })
+    const method = options.method || 'GET'
+    const logPrefix = `[前端] ${method} ${path}`
+    console.info(`${logPrefix} -> 开始请求`)
 
-    if (!response.ok) {
-        const message = await extractErrorMessage(response)
-        throw new Error(message)
+    try {
+        const response = await fetch(`${API_BASE_URL}${path}`, {
+            ...options,
+            headers
+        })
+
+        if (!response.ok) {
+            const message = await extractErrorMessage(response)
+            console.error(`${logPrefix} -> HTTP ${response.status}，服务端返回：${message}`)
+            throw new Error(message)
+        }
+
+        console.info(`${logPrefix} -> 请求成功`)
+        return (await response.json()) as T
+    } catch (error) {
+        console.error(`${logPrefix} -> 请求失败`, error)
+        throw error
     }
-
-    return (await response.json()) as T
 }
 
 async function extractErrorMessage(response: Response): Promise<string> {

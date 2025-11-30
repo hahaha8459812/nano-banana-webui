@@ -21,10 +21,32 @@ const PORT = process.env.PORT || 51130
 
 const app = express()
 
+function logInfo(scope, message, extra) {
+    const time = new Date().toISOString()
+    if (extra) {
+        console.log(`[${time}][${scope}] ${message}`, extra)
+    } else {
+        console.log(`[${time}][${scope}] ${message}`)
+    }
+}
+
+function logError(scope, message, error) {
+    const time = new Date().toISOString()
+    console.error(`[${time}][${scope}] ${message}`, error)
+}
+
 app.use(cors())
 app.use(express.json({ limit: '20mb' }))
 app.use(express.urlencoded({ extended: true }))
 app.use(morgan('dev'))
+app.use((req, res, next) => {
+    const start = Date.now()
+    logInfo('HTTP', `收到 ${req.method} ${req.originalUrl}`)
+    res.on('finish', () => {
+        logInfo('HTTP', `${req.method} ${req.originalUrl} -> ${res.statusCode}，耗时 ${Date.now() - start}ms`)
+    })
+    next()
+})
 app.use('/gallery', express.static(GALLERY_DIR))
 
 ensureDirectories()
@@ -32,25 +54,30 @@ ensureDirectories()
 function ensureDirectories() {
     if (!fs.existsSync(path.dirname(CONFIG_PATH))) {
         fs.mkdirSync(path.dirname(CONFIG_PATH), { recursive: true })
+        logInfo('init', '???????')
     }
 
     if (!fs.existsSync(CONFIG_PATH) && fs.existsSync(CONFIG_EXAMPLE_PATH)) {
         fs.copyFileSync(CONFIG_EXAMPLE_PATH, CONFIG_PATH)
-        console.log('[server] 已从示例创建 app.config.json，请尽快修改默认配置。')
+        logInfo('init', '??????? app.config.json??????????')
     }
 
     if (!fs.existsSync(DATA_DIR)) {
         fs.mkdirSync(DATA_DIR, { recursive: true })
+        logInfo('init', '??????? data/')
     }
 
     if (!fs.existsSync(GALLERY_DIR)) {
         fs.mkdirSync(GALLERY_DIR, { recursive: true })
+        logInfo('init', '??????? gallery/')
     }
 
     if (!fs.existsSync(GALLERY_DATA_PATH)) {
         fs.writeFileSync(GALLERY_DATA_PATH, JSON.stringify([]))
+        logInfo('init', '???? gallery.json')
     }
 }
+
 
 async function loadConfig() {
     const raw = await fs.promises.readFile(CONFIG_PATH, 'utf-8')
@@ -78,6 +105,7 @@ function sanitizeConfig(apiConfig) {
 function authMiddleware(req, res, next) {
     const header = req.headers.authorization
     if (!header) {
+            logInfo('login', '??????')
         return res.status(401).json({ message: '未提供 Authorization 头' })
     }
 
@@ -101,12 +129,13 @@ function authMiddleware(req, res, next) {
             })
         })
         .catch(error => {
-            console.error('[auth] 验证失败', error)
+        logError('auth', '????????', error)
             res.status(500).json({ message: '无法读取配置' })
         })
 }
 
 app.post('/api/login', async (req, res) => {
+    logInfo('login', '??????')
     const { password } = req.body
     if (!password) {
         return res.status(400).json({ message: '密码不能为空' })
@@ -129,13 +158,15 @@ app.post('/api/login', async (req, res) => {
         }
 
         if (!isValid) {
+            logInfo('login', '??????')
             return res.status(401).json({ message: '密码错误' })
         }
 
         const token = jwt.sign({ role: 'admin' }, jwtSecret, { expiresIn: authConfig.tokenExpiresIn || '12h' })
+        logInfo('login', '???????? Token')
         res.json({ token })
     } catch (error) {
-        console.error('[login] 错误', error)
+        logError('login', '??????', error)
         res.status(500).json({ message: '服务器异常，无法登录' })
     }
 })
@@ -148,9 +179,10 @@ app.get('/api/api-configs', authMiddleware, async (req, res) => {
     try {
         const config = await loadConfig()
         const configs = (config.apiConfigs || []).map(sanitizeConfig)
+        logInfo('api-configs', `?? ${configs.length} ? API ??`)
         res.json({ configs })
     } catch (error) {
-        console.error('[api-configs] 读取失败', error)
+        logError('api-configs', '??????', error)
         res.status(500).json({ message: '无法读取 API 配置' })
     }
 })
@@ -166,7 +198,7 @@ app.get('/api/api-configs/:id/models', authMiddleware, async (req, res) => {
         const models = await fetchModels(apiConfig)
         res.json({ models })
     } catch (error) {
-        console.error('[models] 获取失败', error)
+        logError('models', '????????', error)
         res.status(500).json({ message: error.message || '无法获取模型列表' })
     }
 })
@@ -174,9 +206,11 @@ app.get('/api/api-configs/:id/models', authMiddleware, async (req, res) => {
 app.get('/api/templates', authMiddleware, async (req, res) => {
     try {
         const config = await loadConfig()
-        res.json({ templates: config.templates || [] })
+        const templates = config.templates || []
+        logInfo('templates', `?? ${templates.length} ???`)
+        res.json({ templates })
     } catch (error) {
-        console.error('[templates] 读取失败', error)
+        logError('templates', '读取模板失败', error)
         res.status(500).json({ message: '无法读取模板' })
     }
 })
@@ -200,9 +234,10 @@ app.post('/api/templates', authMiddleware, async (req, res) => {
         templates.push(newTemplate)
         config.templates = templates
         await saveConfig(config)
+        logInfo('templates', `???? ${newTemplate.id}`)
         res.json({ template: newTemplate })
     } catch (error) {
-        console.error('[templates] 新增失败', error)
+        logError('templates', '新增模板失败', error)
         res.status(500).json({ message: '无法保存模板' })
     }
 })
@@ -225,9 +260,10 @@ app.put('/api/templates/:id', authMiddleware, async (req, res) => {
         }
         config.templates = templates
         await saveConfig(config)
+        logInfo('templates', `???? ${templates[index].id}`)
         res.json({ template: templates[index] })
     } catch (error) {
-        console.error('[templates] 更新失败', error)
+        logError('templates', '更新模板失败', error)
         res.status(500).json({ message: '无法更新模板' })
     }
 })
@@ -243,9 +279,10 @@ app.delete('/api/templates/:id', authMiddleware, async (req, res) => {
         const removed = templates.splice(index, 1)[0]
         config.templates = templates
         await saveConfig(config)
+        logInfo('templates', `???? ${removed.id}`)
         res.json({ template: removed })
     } catch (error) {
-        console.error('[templates] 删除失败', error)
+        logError('templates', '删除模板失败', error)
         res.status(500).json({ message: '无法删除模板' })
     }
 })
@@ -253,9 +290,10 @@ app.delete('/api/templates/:id', authMiddleware, async (req, res) => {
 app.get('/api/gallery', authMiddleware, async (req, res) => {
     try {
         const entries = await loadGallery()
+        logInfo('gallery', `?? ${entries.length} ?????`)
         res.json({ entries })
     } catch (error) {
-        console.error('[gallery] 读取失败', error)
+        logError('gallery', '??????', error)
         res.status(500).json({ message: '无法读取图库' })
     }
 })
@@ -274,6 +312,7 @@ app.post('/api/generate', authMiddleware, async (req, res) => {
             return res.status(404).json({ message: '找不到对应的 API 配置' })
         }
 
+        logInfo('generate', `????????? ${apiConfig.id}`)
         const result = await generateImage({
             apiConfig,
             prompt: payload.prompt,
@@ -292,6 +331,7 @@ app.post('/api/generate', authMiddleware, async (req, res) => {
             configId: apiConfig.id
         })
 
+        logInfo('generate', `????????? ${savedEntry.id}`)
         res.json({
             imageUrl: savedEntry.imagePath,
             imageData: dataUrl,
@@ -299,13 +339,14 @@ app.post('/api/generate', authMiddleware, async (req, res) => {
             galleryEntry: savedEntry
         })
     } catch (error) {
-        console.error('[generate] 失败', error)
+        logError('generate', '??????', error)
         res.status(500).json({ message: error.message || '生成失败' })
     }
 })
 
 async function fetchModels(apiConfig) {
     const endpoint = resolveModelsEndpoint(apiConfig.endpoint)
+    logInfo('models', `? ${apiConfig.id} ??????`, { endpoint })
     const response = await fetch(endpoint, {
         headers: {
             Authorization: `Bearer ${apiConfig.apiKey}`,
@@ -315,14 +356,19 @@ async function fetchModels(apiConfig) {
 
     if (!response.ok) {
         const text = await response.text()
-        throw new Error(`模型接口错误 ${response.status}: ${text}`)
+        throw new Error(`?????? ${response.status}: ${text}`)
     }
 
     const data = await response.json()
-    if (Array.isArray(data.data)) return data.data
-    if (Array.isArray(data.models)) return data.models
-    throw new Error('模型列表为空')
+    const list = Array.isArray(data.data) ? data.data : Array.isArray(data.models) ? data.models : null
+    if (!list) {
+        throw new Error('??????')
+    }
+
+    logInfo('models', `?? ${list.length} ???`, { endpoint })
+    return list
 }
+
 
 function resolveModelsEndpoint(endpoint) {
     try {
@@ -466,6 +512,7 @@ async function persistGalleryEntry({ prompt, responseText, imageSource, configLa
     }
     entries.unshift(entry)
     await saveGallery(entries)
+    logInfo('gallery', `??????? ${entry.id}`)
     return { entry, dataUrl }
 }
 
