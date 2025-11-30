@@ -1,4 +1,4 @@
-import { API_BASE_URL } from '../config/client'
+import { getApiBaseUrl } from '../config/client'
 import type {
     ApiConfigSummary,
     ApiModel,
@@ -23,7 +23,7 @@ async function request<T>(path: string, options: RequestInit = {}, token?: strin
     console.info(`${logPrefix} -> 开始请求`)
 
     try {
-        const response = await fetch(`${API_BASE_URL}${path}`, {
+        const response = await fetch(`${getApiBaseUrl()}${path}`, {
             ...options,
             headers
         })

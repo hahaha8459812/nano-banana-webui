@@ -39,6 +39,38 @@
             <div v-if="!isAuthenticated" class="max-w-md mx-auto bg-white border-4 border-black rounded-2xl p-6 shadow-xl">
                 <h2 class="text-2xl font-black text-center mb-4">🔐 输入工作密码</h2>
                 <form class="space-y-4" @submit.prevent="handleLogin">
+                    <div class="space-y-2">
+                        <label class="font-bold flex items-center gap-2 text-base">
+                            <span>🌐 后端 API 地址</span>
+                        </label>
+                        <div class="flex flex-col gap-2">
+                            <input
+                                type="text"
+                                v-model="serverBaseUrl"
+                                @input="clearBaseUrlMessage"
+                                placeholder="https://example.com:51130"
+                                class="w-full px-4 py-3 border-2 border-black rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+                            />
+                            <div class="flex flex-col gap-2 sm:flex-row">
+                                <button
+                                    type="button"
+                                    @click="handleSaveServerBaseUrl"
+                                    class="flex-1 px-4 py-2 border-2 border-black rounded-lg bg-yellow-300 hover:bg-yellow-400 font-semibold"
+                                >
+                                    保存地址
+                                </button>
+                                <button
+                                    type="button"
+                                    @click="resetServerBaseUrl"
+                                    class="flex-1 px-4 py-2 border-2 border-black rounded-lg bg-white hover:bg-gray-100 font-semibold"
+                                >
+                                    恢复默认
+                                </button>
+                            </div>
+                        </div>
+                        <p v-if="baseUrlError" class="text-sm text-red-500 flex items-center gap-1">⚠️ {{ baseUrlError }}</p>
+                        <p v-else-if="baseUrlHint" class="text-sm text-green-600 flex items-center gap-1">✅ {{ baseUrlHint }}</p>
+                    </div>
                     <input
                         type="password"
                         v-model="password"
@@ -207,7 +239,7 @@ import {
 import { LocalStorage } from './utils/storage'
 import type { ApiConfigSummary, GalleryEntry, ModelOption, StyleTemplate, ApiModel } from './types'
 import { DEFAULT_MODEL_ID } from './config/api'
-import { API_BASE_URL } from './config/client'
+import { getApiBaseUrl, getDefaultApiBaseUrl, setApiBaseUrl } from './config/client'
 
 const password = ref('')
 const authError = ref('')
@@ -230,6 +262,9 @@ const selectedImages = ref<string[]>([])
 const selectedStyle = ref('')
 const customPrompt = ref('')
 const textToImagePrompt = ref('')
+const serverBaseUrl = ref(getApiBaseUrl())
+const baseUrlError = ref('')
+const baseUrlHint = ref('')
 
 const isLoading = ref(false)
 const isTextToImageLoading = ref(false)
@@ -280,6 +315,46 @@ watch(
         }
     }
 )
+
+const clearBaseUrlMessage = () => {
+    baseUrlError.value = ''
+    baseUrlHint.value = ''
+}
+
+const saveServerBaseUrl = (silent = false) => {
+    if (!silent) {
+        baseUrlHint.value = ''
+    }
+    baseUrlError.value = ''
+    let candidate = serverBaseUrl.value.trim()
+    if (!candidate) {
+        baseUrlError.value = '后端地址不能为空'
+        return false
+    }
+    if (!/^https?:\/\//i.test(candidate)) {
+        candidate = `http://${candidate}`
+    }
+    try {
+        const normalized = new URL(candidate).toString().replace(/\/+$/, '')
+        serverBaseUrl.value = setApiBaseUrl(normalized)
+        if (!silent) {
+            baseUrlHint.value = '已保存后端地址'
+        }
+        return true
+    } catch (error) {
+        baseUrlError.value = '请输入合法的 URL，例如 https://example.com:51130'
+        return false
+    }
+}
+
+const handleSaveServerBaseUrl = () => saveServerBaseUrl(false)
+
+const resetServerBaseUrl = () => {
+    clearBaseUrlMessage()
+    const restored = getDefaultApiBaseUrl()
+    serverBaseUrl.value = setApiBaseUrl(restored)
+    baseUrlHint.value = '已恢复默认地址'
+}
 
 const displayLoading = computed(() => {
     if (latestResultSource.value === 'image') return isLoading.value
@@ -358,8 +433,11 @@ const updateSelectedConfig = (value: string) => {
 
 const handleLogin = async () => {
     if (!password.value.trim()) return
-    isAuthenticating.value = true
     authError.value = ''
+    if (!saveServerBaseUrl(true)) {
+        return
+    }
+    isAuthenticating.value = true
     try {
         const { token } = await login(password.value.trim())
         authToken.value = token
@@ -654,7 +732,7 @@ const handleDeleteTemplate = async (id: string) => {
 const withServerBase = (path: string) => {
     if (!path) return path
     if (path.startsWith('http') || path.startsWith('data:')) return path
-    return `${API_BASE_URL.replace(/\/$/, '')}${path}`
+    return `${getApiBaseUrl().replace(/\/$/, '')}${path}`
 }
 
 const normalizeGalleryEntry = (entry: GalleryEntry) => ({

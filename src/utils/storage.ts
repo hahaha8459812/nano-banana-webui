@@ -3,6 +3,7 @@ export class LocalStorage {
     private static readonly AUTH_TOKEN = 'nano-banana-auth-token'
     private static readonly SELECTED_CONFIG = 'nano-banana-config-id'
     private static readonly MODEL_SELECTIONS = 'nano-banana-model-selection'
+    private static readonly API_BASE_URL = 'nano-banana-api-base-url'
 
     static saveAuthToken(token: string): void {
         try {
@@ -70,6 +71,32 @@ export class LocalStorage {
         this.clearAuthToken()
         localStorage.removeItem(this.SELECTED_CONFIG)
         localStorage.removeItem(this.MODEL_SELECTIONS)
+        // 保留 API 地址，方便下次登录继续使用
+    }
+
+    static saveApiBaseUrl(url: string): void {
+        try {
+            localStorage.setItem(this.API_BASE_URL, url)
+        } catch (error) {
+            console.warn('无法存储后端地址:', error)
+        }
+    }
+
+    static getApiBaseUrl(): string {
+        try {
+            return localStorage.getItem(this.API_BASE_URL) || ''
+        } catch (error) {
+            console.warn('无法读取后端地址:', error)
+            return ''
+        }
+    }
+
+    static clearApiBaseUrl(): void {
+        try {
+            localStorage.removeItem(this.API_BASE_URL)
+        } catch (error) {
+            console.warn('无法清除后端地址:', error)
+        }
     }
 
     private static getModelSelectionMap(): Record<string, string> {
