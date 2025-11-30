@@ -116,6 +116,7 @@
                 提示词
                 <textarea v-model="form.prompt" required class="px-3 py-2 border-2 border-black rounded-lg min-h-[120px]" />
             </label>
+            <p v-if="formError" class="text-sm text-red-600 font-semibold">{{ formError }}</p>
             <div class="flex items-center gap-2 justify-end">
                 <button type="button" class="px-4 py-2 border-2 border-black rounded-lg bg-white hover:bg-gray-200" @click="closeEditor">取消</button>
                 <button type="submit" class="px-4 py-2 border-2 border-black rounded-lg bg-orange-400 hover:bg-orange-500 text-white font-semibold">保存</button>
@@ -152,6 +153,7 @@ const form = reactive({
     prompt: '',
     image: ''
 })
+const formError = ref('')
 
 watch(
     () => props.selectedStyle,
@@ -188,6 +190,7 @@ const resetForm = () => {
     form.description = ''
     form.prompt = ''
     form.image = ''
+    formError.value = ''
 }
 
 const openCreateForm = () => {
@@ -214,7 +217,15 @@ const closeEditor = () => {
 }
 
 const handleSubmit = () => {
-    if (!form.title || !form.prompt) return
+    formError.value = ''
+    if (!form.title.trim()) {
+        formError.value = '模板名称不能为空'
+        return
+    }
+    if (!form.prompt.trim()) {
+        formError.value = '提示词不能为空'
+        return
+    }
     const payload = {
         id: editingId.value || '',
         title: form.title,

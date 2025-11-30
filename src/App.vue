@@ -36,6 +36,17 @@
                 </div>
             </div>
 
+            <div v-if="uiNotice" class="mb-4">
+                <div
+                    :class="[
+                        'px-4 py-3 rounded-lg border-4 border-black text-sm font-semibold shadow-lg',
+                        uiNotice.type === 'success' ? 'bg-green-200 text-green-900' : 'bg-red-200 text-red-900'
+                    ]"
+                >
+                    {{ uiNotice.message }}
+                </div>
+            </div>
+
             <div v-if="!isAuthenticated" class="max-w-md mx-auto bg-white border-4 border-black rounded-2xl p-6 shadow-xl">
                 <h2 class="text-2xl font-black text-center mb-4">🔐 输入工作密码</h2>
                 <form class="space-y-4" @submit.prevent="handleLogin">
@@ -258,6 +269,7 @@ import { getApiBaseUrl, getDefaultApiBaseUrl, setApiBaseUrl } from './config/cli
 
 const password = ref('')
 const authError = ref('')
+const uiNotice = ref<{ type: 'success' | 'error'; message: string } | null>(null)
 const isAuthenticating = ref(false)
 const authToken = ref(LocalStorage.getAuthToken())
 const isAuthenticated = computed(() => Boolean(authToken.value))
@@ -332,6 +344,17 @@ watch(
         }
     }
 )
+
+const showNotice = (type: 'success' | 'error', message: string, duration = 4000) => {
+    uiNotice.value = { type, message }
+    if (duration > 0) {
+        setTimeout(() => {
+            if (uiNotice.value?.message === message) {
+                uiNotice.value = null
+            }
+        }, duration)
+    }
+}
 
 const clearBaseUrlMessage = () => {
     baseUrlError.value = ''
@@ -721,8 +744,10 @@ const handleCreateTemplate = async (template: Omit<StyleTemplate, 'id'>) => {
     try {
         await createTemplate(authToken.value, template)
         await loadTemplates()
+        showNotice('success', '模板已创建')
     } catch (error) {
-        console.error('新增模板失败', error)
+        const message = error instanceof Error ? error.message : '新增模板失败'
+        showNotice('error', message)
     }
 }
 
@@ -731,8 +756,10 @@ const handleUpdateTemplate = async (template: StyleTemplate) => {
     try {
         await updateTemplateRequest(authToken.value, template.id, template)
         await loadTemplates()
+        showNotice('success', '模板已更新')
     } catch (error) {
-        console.error('更新模板失败', error)
+        const message = error instanceof Error ? error.message : '更新模板失败'
+        showNotice('error', message)
     }
 }
 
@@ -741,8 +768,10 @@ const handleDeleteTemplate = async (id: string) => {
     try {
         await deleteTemplateRequest(authToken.value, id)
         await loadTemplates()
+        showNotice('success', '模板已删除')
     } catch (error) {
-        console.error('删除模板失败', error)
+        const message = error instanceof Error ? error.message : '删除模板失败'
+        showNotice('error', message)
     }
 }
 
@@ -752,14 +781,15 @@ const withServerBase = (path: string) => {
     return `${getApiBaseUrl().replace(/\/$/, '')}${path}`
 }
 
-const mutateApiConfig = async (task: () => Promise<void>, fallbackMessage: string) => {
+const mutateApiConfig = async (task: () => Promise<void>, fallbackMessage: string, successMessage = 'API 配置已保存') => {
     if (!authToken.value) return
     isApiConfigMutating.value = true
     try {
         await task()
+        showNotice('success', successMessage)
     } catch (error) {
         const message = error instanceof Error ? error.message : fallbackMessage
-        window.alert(message)
+        showNotice('error', message)
     } finally {
         isApiConfigMutating.value = false
     }
@@ -781,7 +811,8 @@ const handleCreateApiConfig = async (config: ApiConfigFormPayload) => {
             await loadConfigs()
             selectedConfigId.value = payload.id
         },
-        '无法新增 API 配置'
+        '无法新增 API 配置',
+        'API 配置已新增'
     )
 }
 
@@ -803,7 +834,8 @@ const handleUpdateApiConfig = async (config: ApiConfigFormPayload) => {
             await loadConfigs()
             selectedConfigId.value = id
         },
-        '无法更新 API 配置'
+        '无法更新 API 配置',
+        'API 配置已更新'
     )
 }
 
@@ -814,7 +846,8 @@ const handleDeleteApiConfig = async (id: string) => {
             await deleteApiConfigRequest(authToken.value, id)
             await loadConfigs()
         },
-        '无法删除 API 配置'
+        '无法删除 API 配置',
+        'API 配置已删除'
     )
 }
 

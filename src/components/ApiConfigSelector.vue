@@ -136,6 +136,7 @@
                 />
                 <span class="text-xs text-gray-500" v-if="editorMode === 'edit'">留空则沿用现有密钥</span>
             </label>
+            <p v-if="formError" class="text-sm text-red-600 font-semibold">{{ formError }}</p>
             <div class="flex items-center gap-2 justify-end">
                 <button type="button" class="px-4 py-2 border-2 border-black rounded-lg bg-white hover:bg-gray-200" @click="closeEditor" :disabled="managementLoading">
                     取消
@@ -203,6 +204,7 @@ const form = reactive({
     description: '',
     apiKey: ''
 })
+const formError = ref('')
 
 const resetForm = () => {
     form.id = ''
@@ -211,6 +213,7 @@ const resetForm = () => {
     form.model = ''
     form.description = ''
     form.apiKey = ''
+    formError.value = ''
 }
 
 const openCreateForm = () => {
@@ -243,7 +246,25 @@ const closeEditor = () => {
 }
 
 const handleSubmit = () => {
-    if (!form.id || !form.label || !form.endpoint || !form.model || (editorMode.value === 'create' && !form.apiKey)) {
+    formError.value = ''
+    if (!form.id.trim()) {
+        formError.value = '配置 ID 不能为空'
+        return
+    }
+    if (!form.label.trim()) {
+        formError.value = '展示名称不能为空'
+        return
+    }
+    if (!form.endpoint.trim()) {
+        formError.value = 'Endpoint 不能为空'
+        return
+    }
+    if (!form.model.trim()) {
+        formError.value = '默认模型不能为空'
+        return
+    }
+    if (editorMode.value === 'create' && !form.apiKey.trim()) {
+        formError.value = 'API Key 不能为空'
         return
     }
     const payload = {
