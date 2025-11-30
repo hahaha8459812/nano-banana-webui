@@ -25,7 +25,7 @@ services:
     networks:
       - nano-banana-net
     ports:
-      - "3000:80"
+      - "51131:80"
     depends_on:
       - backend
 
