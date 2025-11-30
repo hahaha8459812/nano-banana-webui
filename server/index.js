@@ -183,7 +183,87 @@ app.get('/api/api-configs', authMiddleware, async (req, res) => {
         res.json({ configs })
     } catch (error) {
         logError('api-configs', '??????', error)
-        res.status(500).json({ message: '无法读取 API 配置' })
+        res.status(500).json({ message: '???? API ??' })
+    }
+})
+
+app.post('/api/api-configs', authMiddleware, async (req, res) => {
+    const payload = req.body || {}
+    if (!payload.id || !payload.label || !payload.endpoint || !payload.model || !payload.apiKey) {
+        return res.status(400).json({ message: 'id????endpoint?model?apiKey ????' })
+    }
+    try {
+        const config = await loadConfig()
+        const list = config.apiConfigs || []
+        if (list.find(item => item.id === payload.id)) {
+            return res.status(409).json({ message: 'ID ??????????' })
+        }
+        const newItem = {
+            id: String(payload.id).trim(),
+            label: String(payload.label).trim(),
+            endpoint: String(payload.endpoint).trim(),
+            model: String(payload.model).trim(),
+            description: payload.description ? String(payload.description).trim() : '',
+            apiKey: String(payload.apiKey).trim()
+        }
+        list.push(newItem)
+        config.apiConfigs = list
+        await saveConfig(config)
+        logInfo('api-configs', `???? ${newItem.id}`)
+        res.json({ config: sanitizeConfig(newItem) })
+    } catch (error) {
+        logError('api-configs', '??????', error)
+        res.status(500).json({ message: '???? API ??' })
+    }
+})
+
+app.put('/api/api-configs/:id', authMiddleware, async (req, res) => {
+    const payload = req.body || {}
+    try {
+        const config = await loadConfig()
+        const list = config.apiConfigs || []
+        const index = list.findIndex(item => item.id === req.params.id)
+        if (index === -1) {
+            return res.status(404).json({ message: '?????' })
+        }
+        const current = list[index]
+        const nextConfig = {
+            ...current,
+            label: payload.label ? String(payload.label).trim() : current.label,
+            endpoint: payload.endpoint ? String(payload.endpoint).trim() : current.endpoint,
+            model: payload.model ? String(payload.model).trim() : current.model,
+            description: payload.description !== undefined ? String(payload.description).trim() : current.description
+        }
+        if (payload.apiKey && String(payload.apiKey).trim()) {
+            nextConfig.apiKey = String(payload.apiKey).trim()
+        }
+        list[index] = nextConfig
+        config.apiConfigs = list
+        await saveConfig(config)
+        logInfo('api-configs', `???? ${nextConfig.id}`)
+        res.json({ config: sanitizeConfig(nextConfig) })
+    } catch (error) {
+        logError('api-configs', '??????', error)
+        res.status(500).json({ message: '???? API ??' })
+    }
+})
+
+app.delete('/api/api-configs/:id', authMiddleware, async (req, res) => {
+    try {
+        const config = await loadConfig()
+        const list = config.apiConfigs || []
+        const index = list.findIndex(item => item.id === req.params.id)
+        if (index === -1) {
+            return res.status(404).json({ message: '?????' })
+        }
+        const removed = list.splice(index, 1)[0]
+        config.apiConfigs = list
+        await saveConfig(config)
+        logInfo('api-configs', `???? ${removed.id}`)
+        res.json({ config: sanitizeConfig(removed) })
+    } catch (error) {
+        logError('api-configs', '??????', error)
+        res.status(500).json({ message: '???? API ??' })
     }
 })
 
@@ -192,14 +272,14 @@ app.get('/api/api-configs/:id/models', authMiddleware, async (req, res) => {
         const config = await loadConfig()
         const apiConfig = (config.apiConfigs || []).find(item => item.id === req.params.id)
         if (!apiConfig) {
-            return res.status(404).json({ message: '找不到对应的 API 配置' })
+            return res.status(404).json({ message: '?????? API ??' })
         }
 
         const models = await fetchModels(apiConfig)
         res.json({ models })
     } catch (error) {
         logError('models', '????????', error)
-        res.status(500).json({ message: error.message || '无法获取模型列表' })
+        res.status(500).json({ message: error.message || '????????' })
     }
 })
 

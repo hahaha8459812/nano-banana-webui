@@ -54,6 +54,23 @@ export interface ApiConfigSummary {
     description?: string
 }
 
+export interface CreateApiConfigPayload {
+    id: string
+    label: string
+    endpoint: string
+    model: string
+    description?: string
+    apiKey: string
+}
+
+export interface UpdateApiConfigPayload {
+    label?: string
+    endpoint?: string
+    model?: string
+    description?: string
+    apiKey?: string
+}
+
 export interface GalleryEntry {
     id: string
     prompt: string

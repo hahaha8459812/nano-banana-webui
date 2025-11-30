@@ -97,9 +97,13 @@
                         :model-options="modelOptions"
                         :model-loading="isFetchingModels"
                         :model-error="modelsError"
+                        :management-loading="isApiConfigMutating"
                         @update:selected-config-id="updateSelectedConfig"
                         @update:selected-model-id="value => (selectedModelId = value)"
                         @fetch-models="handleFetchModels"
+                        @create-api-config="handleCreateApiConfig"
+                        @update-api-config="handleUpdateApiConfig"
+                        @delete-api-config="handleDeleteApiConfig"
                     />
                 </div>
 
@@ -225,7 +229,9 @@ import AspectRatioSelector from './components/AspectRatioSelector.vue'
 import Gemini3ProConfig from './components/Gemini3ProConfig.vue'
 import GalleryView from './components/GalleryView.vue'
 import {
+    createApiConfig as createApiConfigRequest,
     createTemplate,
+    deleteApiConfig as deleteApiConfigRequest,
     deleteTemplate as deleteTemplateRequest,
     fetchApiConfigs,
     fetchGallery,
@@ -233,11 +239,20 @@ import {
     fetchTemplates,
     generateImage,
     login,
+    updateApiConfig as updateApiConfigRequest,
     updateTemplate as updateTemplateRequest,
     verifySession
 } from './services/backend'
 import { LocalStorage } from './utils/storage'
-import type { ApiConfigSummary, GalleryEntry, ModelOption, StyleTemplate, ApiModel } from './types'
+import type {
+    ApiConfigSummary,
+    GalleryEntry,
+    ModelOption,
+    StyleTemplate,
+    ApiModel,
+    CreateApiConfigPayload,
+    UpdateApiConfigPayload
+} from './types'
 import { DEFAULT_MODEL_ID } from './config/api'
 import { getApiBaseUrl, getDefaultApiBaseUrl, setApiBaseUrl } from './config/client'
 
@@ -279,6 +294,8 @@ const latestResultSource = ref<'text' | 'image' | null>(null)
 const selectedAspectRatio = ref('1:1')
 const gemini3ImageSize = ref('2K')
 const gemini3EnableGoogleSearch = ref(false)
+const isApiConfigMutating = ref(false)
+type ApiConfigFormPayload = CreateApiConfigPayload & { apiKey?: string }
 
 const activeTabClass = 'px-4 py-2 rounded-lg border-2 border-black bg-black text-white font-semibold shadow-lg'
 const inactiveTabClass = 'px-4 py-2 rounded-lg border-2 border-black bg-white text-black font-semibold hover:bg-yellow-200'
@@ -733,6 +750,72 @@ const withServerBase = (path: string) => {
     if (!path) return path
     if (path.startsWith('http') || path.startsWith('data:')) return path
     return `${getApiBaseUrl().replace(/\/$/, '')}${path}`
+}
+
+const mutateApiConfig = async (task: () => Promise<void>, fallbackMessage: string) => {
+    if (!authToken.value) return
+    isApiConfigMutating.value = true
+    try {
+        await task()
+    } catch (error) {
+        const message = error instanceof Error ? error.message : fallbackMessage
+        window.alert(message)
+    } finally {
+        isApiConfigMutating.value = false
+    }
+}
+
+const handleCreateApiConfig = async (config: ApiConfigFormPayload) => {
+    await mutateApiConfig(
+        async () => {
+            if (!authToken.value) return
+            const payload: CreateApiConfigPayload = {
+                id: config.id,
+                label: config.label,
+                endpoint: config.endpoint,
+                model: config.model,
+                description: config.description || '',
+                apiKey: config.apiKey || ''
+            }
+            await createApiConfigRequest(authToken.value, payload)
+            await loadConfigs()
+            selectedConfigId.value = payload.id
+        },
+        '无法新增 API 配置'
+    )
+}
+
+const handleUpdateApiConfig = async (config: ApiConfigFormPayload) => {
+    await mutateApiConfig(
+        async () => {
+            if (!authToken.value) return
+            const { id, ...rest } = config
+            const payload: UpdateApiConfigPayload = {
+                label: rest.label,
+                endpoint: rest.endpoint,
+                model: rest.model,
+                description: rest.description || ''
+            }
+            if (rest.apiKey) {
+                payload.apiKey = rest.apiKey
+            }
+            await updateApiConfigRequest(authToken.value, id, payload)
+            await loadConfigs()
+            selectedConfigId.value = id
+        },
+        '无法更新 API 配置'
+    )
+}
+
+const handleDeleteApiConfig = async (id: string) => {
+    await mutateApiConfig(
+        async () => {
+            if (!authToken.value) return
+            await deleteApiConfigRequest(authToken.value, id)
+            await loadConfigs()
+        },
+        '无法删除 API 配置'
+    )
 }
 
 const normalizeGalleryEntry = (entry: GalleryEntry) => ({

@@ -2,10 +2,12 @@ import { getApiBaseUrl } from '../config/client'
 import type {
     ApiConfigSummary,
     ApiModel,
+    CreateApiConfigPayload,
     GalleryEntry,
     GenerateRequest,
     GenerateResponse,
-    StyleTemplate
+    StyleTemplate,
+    UpdateApiConfigPayload
 } from '../types'
 
 async function request<T>(path: string, options: RequestInit = {}, token?: string): Promise<T> {
@@ -65,6 +67,21 @@ export async function verifySession(token: string) {
 export async function fetchApiConfigs(token: string) {
     const data = await request<{ configs: ApiConfigSummary[] }>('/api/api-configs', { method: 'GET' }, token)
     return data.configs || []
+}
+
+export async function createApiConfig(token: string, payload: CreateApiConfigPayload) {
+    const data = await request<{ config: ApiConfigSummary }>('/api/api-configs', { method: 'POST', body: JSON.stringify(payload) }, token)
+    return data.config
+}
+
+export async function updateApiConfig(token: string, id: string, payload: UpdateApiConfigPayload) {
+    const data = await request<{ config: ApiConfigSummary }>(`/api/api-configs/${id}`, { method: 'PUT', body: JSON.stringify(payload) }, token)
+    return data.config
+}
+
+export async function deleteApiConfig(token: string, id: string) {
+    const data = await request<{ config: ApiConfigSummary }>(`/api/api-configs/${id}`, { method: 'DELETE' }, token)
+    return data.config
 }
 
 export async function fetchTemplates(token: string) {
