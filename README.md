@@ -1,101 +1,121 @@
 # NanoBanana Web UI
 
-基于 **Vue 3 + TypeScript + TailwindCSS + Vite** 的多模态生图工作台，后端由 Node.js 服务负责安全保存 API 密钥、发起 OpenRouter/Gemini 请求并把结果写入图库。
+NanoBanana 是一款基于 **Vue 3 + TypeScript + TailwindCSS + Vite** 的多模态工作台，后端使用 **Express（Node.js）** 提供统一 API，负责安全地保存密钥、转发请求到 Gemini / OpenRouter，并将生成结果写入图库。
 
-## ✨ 主要特性
+---
 
-- 🔐 密码登录 + 服务器密钥保存：前端用户仅需密码即可使用，API Key 永远不离开服务器。
-- 🧩 多套 API 配置：后端配置文件中可维护多组 endpoint/model/key，前端随时切换。
-- 🧠 Gemini/OpenRouter 兼容：支持 Gemini 3 Pro Image 专属参数、宽高比、Google Search 等。
-- 🗂 工作区 + 图库：生成的图片和文本回复会自动同步到图库并可再次下载或推回创作区。
-- 📝 模板管理：提示词模板存储在配置文件里，支持在前端新增/编辑/删除。
+## 🌟 核心特性
 
-## 📁 目录结构
+- **安全的密钥管理**：用户只需要输入登录密码，真正的 API Key 永远保留在服务器。
+- **可视化 API 配置**：在前端即可新增 / 编辑 / 删除多套 endpoint，并设定默认配置。
+- **模板 + 图库闭环**：提示词模板可以在线维护；生成结果会记录到图库，可查看详情、下载原图、删除记录。
+- **Gemini / OpenRouter 特性**：支持 Gemini 3 Pro Image 的宽高比、分辨率以及 Google Search 等扩展参数。
+- **部署灵活**：可在本地运行，也支持 Docker Compose；前端可以通过 `VITE_API_BASE_URL` 指向任意后端。
+
+---
+
+## 📦 目录概览
 
 ```
 .
-├─ package.json               # 前端依赖与脚本
-├─ server/
-│  ├─ index.js                # Express 服务入口
-│  ├─ package.json            # 后端依赖
-│  ├─ config/app.config.example.json  # 配置示例
-│  ├─ data/                   # 图库索引（运行时自动生成）
-│  └─ gallery/                # 图库原图（运行时自动生成）
-├─ src/                       # 前端源码
-│  ├─ components/             # Vue 组件
-│  ├─ config/client.ts        # 前端 API Base URL
-│  ├─ services/backend.ts     # 调用后端的封装
-│  └─ App.vue                 # 顶层界面
-├─ Dockerfile.frontend
-├─ Dockerfile.server
-├─ docker-compose.yml
-└─ README.md
+├── server/                    # Node.js 后端
+│   ├── index.js               # Express 入口
+│   ├── config/app.config.json # 运行时配置（复制 example 后修改）
+│   ├── data/gallery.json      # 图库索引（自动生成）
+│   └── gallery/               # 生成的图片（自动生成）
+├── src/                       # Vue 前端
+│   ├── components/            # API 配置卡片、图库等组件
+│   ├── services/backend.ts    # 调用后端的封装
+│   └── App.vue
+├── docker-compose.yml
+├── Dockerfile.frontend
+├── Dockerfile.server
+├── CONFIG.md                  # 配置字段说明
+└── README.md
 ```
 
-## ⚙️ 服务器配置
+---
 
-1. 复制 `server/config/app.config.example.json` 为 `app.config.json`；
-2. 根据需要填写：
-   - `auth.password` 或 `auth.passwordHash`（任选其一）；
-   - `auth.jwtSecret`：任意随机字符串即可；
-   - `apiConfigs`：多套 API endpoint/model/apiKey；
-   - `templates`：初始提示词模板；
-3. 运行 `npm install && npm run start`（或用 PM2/systemd 等守护）即可启动后端；图库图片会写入 `server/gallery/`，索引写入 `server/data/gallery.json`，记得备份。
+## ⚙️ 环境要求
 
-## 🚀 本地启动
+- Node.js ≥ 18、npm ≥ 9（本地开发需要）
+- Docker + Docker Compose v2（推荐用于部署）
+
+---
+
+## 🔐 快速配置
+
+1. 复制示例文件
+   ```bash
+   cp server/config/app.config.example.json server/config/app.config.json
+   ```
+2. 编辑 `app.config.json`：
+   - `auth`：配置登录密码（明文或者 bcrypt hash）和 `jwtSecret`
+   - `apiConfigs`：至少一条 endpoint（包含 `id`、`endpoint`、`model`、`apiKey` 等）
+   - `templates`：可选，预置提示词
+3. 启动服务器后，会自动在 `server/gallery/`、`server/data/` 生成图库相关文件。
+
+详细字段可参考 [CONFIG.md](CONFIG.md)。
+
+---
+
+## 🧑‍💻 本地开发
 
 ```bash
-# 根目录安装前端依赖
+# 安装前端依赖
 npm install
 
-# 启动后端
+# 运行后端（另开终端）
 cd server
 npm install
 npm run start
 
-# 另开终端运行前端
+# 回到根目录，运行前端
 cd ..
 npm run dev
 ```
 
-默认前端监听 `http://localhost:3000`，后端在 `http://localhost:51130`。如需自定义后端地址，可在 `.env` 中设置 `VITE_API_BASE_URL`。
+- 前端默认地址：`http://localhost:5173`
+- 后端默认地址：`http://localhost:51130`
+- 需要连接远程后端时，在根目录 `.env` 中设置 `VITE_API_BASE_URL=http://your-server:51130`
 
-## 🐳 Docker Compose 部署
+---
 
-为了方便一次性搭建，可以按以下三条命令完成：
+## 🐳 Docker Compose
 
 ```bash
-# 1. 拉仓库并进入
-mkdir nano-banana && cd nano-banana && git clone https://github.com/hahaha8459812/nano-banana-webui.git . 
-
-# 2. 准备配置（复制示例并根据需求修改密码/API Key/模板等）
+git clone https://github.com/hahaha8459812/nano-banana-webui.git
+cd nano-banana-webui
 cp server/config/app.config.example.json server/config/app.config.json
-vim server/config/app.config.json
-
-# 3. 构建并启动
+# 修改配置后
 docker compose up -d --build
 ```
 
-> 如无 vim，可用其他编辑器（nano、notepad 等）修改 `server/config/app.config.json`。
+- `frontend` 映射 `51131:80`
+- `backend` 映射 `51130:51130`
+- 图库文件存储在 `gallery-data`、`gallery-meta` 卷中
+- 浏览器访问 `http://服务器IP:51131`，在登录界面填入后端地址（如 `http://服务器IP:51130`）并保存，再输入密码使用
 
-- `backend` 服务挂载 `server/config/app.config.json`（默认只读），图库原图与索引分别持久化到名为 `gallery-data`、`gallery-meta` 的卷里；
-- `frontend` 构建阶段注入 `VITE_API_BASE_URL=http://backend:51130`，若后端要改端口，可同时调整 `docker-compose.yml` 中的映射与 `build.args`；
-- 默认暴露 `3000:80`（前端）和 `51130:51130`（后端），可按需改动。
+---
 
-## 🧑‍💻 使用流程
+## 🧑‍🎨 使用流程
 
-1. 打开前端并输入部署者设置的密码；
-2. 在“API 配置”卡片中选择需要的 endpoint/model，若需刷新模型列表可点击“获取模型列表”；
-3. 在“工作区”上传参考图、选择提示词模板或编写自定义提示词；
-4. 选择“纯提示词”或“图文混合”生成，结果会显示在下方并写入图库；
-5. “图库”页签可查看全部历史作品、下载图片或复制文本回复。
+1. **登录**：输入密码 + 后端 API 地址（浏览器会记住）
+2. **API 配置卡片**：展开折叠面板后，可创建/编辑/删除配置、设置默认项、刷新模型列表
+3. **工作区**：选择模板或自定义提示词，上传参考图，设置宽高比 / Gemini 3 Pro 配置，触发纯提示词或图文生图
+4. **图库**：分页展示（桌面 4×3，移动 1×6），卡片包含时间戳与来源；点击进入详情可查看原图、模型信息、分辨率，并支持下载或删除
 
-## 📝 额外说明
+---
 
-- `server/gallery/` 与 `server/data/gallery.json` 默认被 `.gitignore` 忽略，生产环境请挂载到独立存储。
-- 若需要更严格的安全策略，可在反向代理层再加一层 Basic Auth 或 IP 白名单。
-- 任何模板的增删改都会立即写入 `app.config.json`，无需重启容器或服务。
+## 🔒 小贴士
 
-## 📄 许可证
+- `server/config/app.config.json` 含有敏感信息，别提交到 Git，可通过 CI/CD 或密钥管理系统分发
+- `server/gallery`、`server/data` 建议在生产环境挂载到持久化磁盘
+- 面向公网时，可在反向代理层增加 HTTPS、Basic Auth、IP 白名单等额外保护
+- 后端结构简单，如需队列、Webhook、更多接口，可在 `server/index.js` 基础上扩展
 
-MIT License
+---
+
+## 📄 License
+
+MIT License © Nano Banana Contributors
