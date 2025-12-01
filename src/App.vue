@@ -235,7 +235,6 @@
                     <GalleryDetailModal :visible="Boolean(selectedGalleryEntry)" :entry="selectedGalleryEntry" @close="selectedGalleryEntry = null" />
                 </div>
 
-                <Footer />
             </template>
         </div>
     </div>
@@ -247,7 +246,6 @@ import ApiConfigSelector from './components/ApiConfigSelector.vue'
 import ImageUpload from './components/ImageUpload.vue'
 import StylePromptSelector from './components/StylePromptSelector.vue'
 import ResultDisplay from './components/ResultDisplay.vue'
-import Footer from './components/Footer.vue'
 import AspectRatioSelector from './components/AspectRatioSelector.vue'
 import Gemini3ProConfig from './components/Gemini3ProConfig.vue'
 import GalleryView from './components/GalleryView.vue'
