@@ -84,5 +84,8 @@ export interface GalleryEntry {
     fileName: string
     configLabel: string
     configId: string
+    modelId?: string
+    aspectRatio?: string
+    imageSize?: string
     createdAt: string
 }

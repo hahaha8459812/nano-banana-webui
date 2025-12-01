@@ -222,7 +222,17 @@
                 </div>
 
                 <div v-else class="mb-6">
-                    <GalleryView :entries="galleryEntries" @refresh="loadGallery" @delete-entry="handleDeleteGalleryEntry" />
+                    <GalleryView
+                        :entries="paginatedGalleryEntries"
+                        :total="galleryEntries.length"
+                        :page="galleryPage"
+                        :page-count="totalGalleryPages"
+                        @refresh="loadGallery"
+                        @delete-entry="handleDeleteGalleryEntry"
+                        @change-page="changeGalleryPage"
+                        @show-detail="openGalleryDetail"
+                    />
+                    <GalleryDetailModal :visible="Boolean(selectedGalleryEntry)" :entry="selectedGalleryEntry" @close="selectedGalleryEntry = null" />
                 </div>
 
                 <Footer />
@@ -232,7 +242,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import ApiConfigSelector from './components/ApiConfigSelector.vue'
 import ImageUpload from './components/ImageUpload.vue'
 import StylePromptSelector from './components/StylePromptSelector.vue'
@@ -241,6 +251,7 @@ import Footer from './components/Footer.vue'
 import AspectRatioSelector from './components/AspectRatioSelector.vue'
 import Gemini3ProConfig from './components/Gemini3ProConfig.vue'
 import GalleryView from './components/GalleryView.vue'
+import GalleryDetailModal from './components/GalleryDetailModal.vue'
 import {
     createApiConfig as createApiConfigRequest,
     createTemplate,
@@ -289,6 +300,18 @@ const modelsError = ref<string | null>(null)
 
 const templates = ref<StyleTemplate[]>([])
 const galleryEntries = ref<GalleryEntry[]>([])
+const galleryPage = ref(1)
+const isMobileGallery = ref(false)
+const galleryPageSize = computed(() => (isMobileGallery.value ? 6 : 12))
+const totalGalleryPages = computed(() => {
+    const total = galleryEntries.value.length
+    return Math.max(1, Math.ceil(Math.max(total, 1) / galleryPageSize.value))
+})
+const paginatedGalleryEntries = computed(() => {
+    const start = (galleryPage.value - 1) * galleryPageSize.value
+    return galleryEntries.value.slice(start, start + galleryPageSize.value)
+})
+const selectedGalleryEntry = ref<GalleryEntry | null>(null)
 
 const selectedImages = ref<string[]>([])
 const selectedStyle = ref('')
@@ -365,6 +388,21 @@ const clearBaseUrlMessage = () => {
     baseUrlError.value = ''
     baseUrlHint.value = ''
 }
+
+const handleGalleryResize = () => {
+    if (typeof window === 'undefined') return
+    isMobileGallery.value = window.innerWidth < 768
+}
+
+watch([() => galleryEntries.value.length, galleryPageSize], () => {
+    const max = totalGalleryPages.value
+    if (galleryPage.value > max) {
+        galleryPage.value = max
+    }
+    if (galleryPage.value < 1) {
+        galleryPage.value = 1
+    }
+})
 
 const saveServerBaseUrl = (silent = false) => {
     if (!silent) {
@@ -472,6 +510,15 @@ onMounted(async () => {
     }
 })
 
+onMounted(() => {
+    handleGalleryResize()
+    window.addEventListener('resize', handleGalleryResize)
+})
+
+onUnmounted(() => {
+    window.removeEventListener('resize', handleGalleryResize)
+})
+
 const updateSelectedConfig = (value: string) => {
     selectedConfigId.value = value
 }
@@ -543,6 +590,7 @@ const loadGallery = async () => {
     if (!authToken.value) return
     const entries = await fetchGallery(authToken.value)
     galleryEntries.value = normalizeGalleryEntries(entries)
+    galleryPage.value = 1
 }
 
 const handleFetchModels = async () => {
@@ -794,11 +842,24 @@ const handleDeleteGalleryEntry = async (id: string) => {
     try {
         await deleteGalleryEntryRequest(authToken.value, id)
         galleryEntries.value = galleryEntries.value.filter(entry => entry.id !== id)
+        if (selectedGalleryEntry.value?.id === id) {
+            selectedGalleryEntry.value = null
+        }
         showNotice('success', '已删除图库记录')
     } catch (error) {
         const message = error instanceof Error ? error.message : '删除图库记录失败'
         showNotice('error', message)
     }
+}
+
+const changeGalleryPage = (page: number) => {
+    const max = totalGalleryPages.value
+    const next = Math.min(Math.max(page, 1), max)
+    galleryPage.value = next
+}
+
+const openGalleryDetail = (entry: GalleryEntry) => {
+    selectedGalleryEntry.value = entry
 }
 
 const withServerBase = (path: string) => {

@@ -7,6 +7,13 @@
             </div>
             <div class="flex flex-wrap gap-2">
                 <button
+                    type="button"
+                    class="px-4 py-2 rounded-lg border-2 border-black font-semibold text-sm bg-white hover:bg-gray-100"
+                    @click="isCollapsed = !isCollapsed"
+                >
+                    {{ isCollapsed ? '展开' : '收起' }}
+                </button>
+                <button
                     @click="$emit('fetch-models')"
                     :disabled="!selectedConfigId || modelLoading"
                     :class="[
@@ -31,14 +38,16 @@
             </div>
         </div>
 
-        <div v-if="!configs.length" class="p-4 bg-yellow-50 border-2 border-dashed border-yellow-400 rounded-lg text-sm text-yellow-700">
-            暂未配置可用的 API，使用上方按钮创建一条配置。
-        </div>
+        <transition name="fade">
+            <div v-if="!isCollapsed" class="space-y-4">
+                <div v-if="!configs.length" class="p-4 bg-yellow-50 border-2 border-dashed border-yellow-400 rounded-lg text-sm text-yellow-700">
+                    暂未配置可用的 API，使用上方按钮创建一条配置。
+                </div>
 
-        <div class="grid md:grid-cols-2 gap-3" v-else>
-            <label
-                v-for="config in configs"
-                :key="config.id"
+                <div class="grid md:grid-cols-2 gap-3" v-else>
+                    <label
+                        v-for="config in configs"
+                        :key="config.id"
                 class="border-2 border-black rounded-lg p-3 cursor-pointer transition-all hover:-translate-y-1"
                 :class="selectedConfigId === config.id ? 'bg-yellow-200 shadow-lg' : 'bg-gray-50'"
             >
@@ -161,6 +170,8 @@
                 </button>
             </div>
         </form>
+            </div>
+        </transition>
     </div>
 </template>
 
@@ -208,6 +219,7 @@ const emit = defineEmits<{
 }>()
 
 const defaultConfigId = computed(() => props.defaultConfigId)
+const isCollapsed = ref(true)
 const showEditor = ref(false)
 const editorMode = ref<'create' | 'edit'>('create')
 const form = reactive({
