@@ -568,8 +568,8 @@ async function generateImage({ apiConfig, prompt, images, model, aspectRatio, im
 
     const imageUrl =
         choice.images?.[0]?.image_url?.url ||
-        (typeof choice.content === 'string' && choice.content.startsWith('data:image/') ? choice.content : null) ||
-        extractImageFromContent(choice.content)
+        extractImageFromContent(choice.content) ||
+        extractImageFromContent(choice)
 
     if (!imageUrl) {
         const textResponse = extractTextResponse(choice.content)
@@ -582,13 +582,106 @@ async function generateImage({ apiConfig, prompt, images, model, aspectRatio, im
 
 function extractImageFromContent(content) {
     if (!content) return null
+
+    // Plain string content that may embed a data URL or markdown link
+    if (typeof content === 'string') {
+        return extractImageFromString(content)
+    }
+
+    // Walk array parts
     if (Array.isArray(content)) {
-        const imagePart = content.find(part => part.type === 'image_url')
-        if (imagePart?.image_url?.url) {
-            return imagePart.image_url.url
+        for (const part of content) {
+            const found = extractImageFromContent(part)
+            if (found) return found
+        }
+        return null
+    }
+
+    // Object content with possible image carriers
+    if (typeof content === 'object') {
+        // Common OpenAI/OpenRouter style
+        if (content.type === 'image_url' && content.image_url?.url) {
+            return content.image_url.url
+        }
+        if (content.type === 'response_image_url' && typeof content.url === 'string') {
+            return content.url
+        }
+        if (content.image_url?.url) {
+            return content.image_url.url
+        }
+        if (content.url && typeof content.url === 'string' && isLikelyImageUrl(content.url)) {
+            return content.url
+        }
+
+        // Gemini style inline_data
+        if (content.inline_data?.data) {
+            const mime = content.inline_data.mimeType || 'image/png'
+            return toDataUrl(content.inline_data.data, mime)
+        }
+
+        // Generic base64 fields
+        const base64Fields = [content.base64, content.b64_json, content.image_base64, content.data]
+        for (const candidate of base64Fields) {
+            if (typeof candidate === 'string' && candidate.trim()) {
+                return toDataUrl(candidate.trim(), content.mimeType || 'image/png')
+            }
+        }
+
+        // Text fields that may embed data URL
+        if (typeof content.text === 'string') {
+            const found = extractImageFromString(content.text)
+            if (found) return found
+        }
+
+        // Nested collections
+        if (content.parts) {
+            const found = extractImageFromContent(content.parts)
+            if (found) return found
+        }
+        if (content.content) {
+            const found = extractImageFromContent(content.content)
+            if (found) return found
         }
     }
+
     return null
+}
+
+function extractImageFromString(value) {
+    if (!value || typeof value !== 'string') return null
+
+    // Markdown style: ![Generated Image](data:image/...)
+    const markdownMatch = value.match(/\((data:image\/[a-zA-Z0-9.+-]+;base64,[^)]+)\)/)
+    if (markdownMatch?.[1]) {
+        return markdownMatch[1]
+    }
+
+    // Direct data URL
+    const dataUrlMatch = value.match(/data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+/)
+    if (dataUrlMatch?.[0]) {
+        return dataUrlMatch[0]
+    }
+
+    // Plain URL that might already be hosted
+    const httpMatch = value.match(/https?:\/\/[^\s)]+/i)
+    if (httpMatch?.[0] && isLikelyImageUrl(httpMatch[0])) {
+        return httpMatch[0]
+    }
+
+    return null
+}
+
+function isLikelyImageUrl(url) {
+    return /^https?:\/\//i.test(url) || url.startsWith('data:image/')
+}
+
+function toDataUrl(base64Content, mimeType = 'image/png') {
+    const normalized = base64Content.trim()
+    if (normalized.startsWith('data:image/')) {
+        return normalized
+    }
+    const cleaned = normalized.replace(/^base64,/, '')
+    return `data:${mimeType};base64,${cleaned}`
 }
 
 function extractTextResponse(content) {
@@ -596,9 +689,14 @@ function extractTextResponse(content) {
     if (typeof content === 'string') return content
     if (Array.isArray(content)) {
         return content
-            .filter(part => part.type === 'text' && typeof part.text === 'string')
-            .map(part => part.text)
+            .map(part => extractTextResponse(part))
+            .filter(Boolean)
             .join('\n')
+    }
+    if (typeof content === 'object') {
+        if (typeof content.text === 'string') return content.text
+        if (content.parts) return extractTextResponse(content.parts)
+        if (content.content) return extractTextResponse(content.content)
     }
     return ''
 }
