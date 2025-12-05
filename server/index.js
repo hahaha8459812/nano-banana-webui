@@ -434,7 +434,10 @@ app.post('/api/generate', authMiddleware, async (req, res) => {
             responseText: result.textResponse,
             imageSource: result.imageUrl,
             configLabel: apiConfig.label,
-            configId: apiConfig.id
+            configId: apiConfig.id,
+            modelId: result.modelUsed,
+            aspectRatio: result.aspectRatioUsed,
+            imageSize: result.imageSizeUsed
         })
 
         logInfo('generate', `????????? ${savedEntry.id}`)
@@ -513,6 +516,7 @@ async function generateImage({ apiConfig, prompt, images, model, aspectRatio, im
         throw new Error('缺少提示词或参考图像')
     }
 
+    const resolvedModel = model || apiConfig.model
     const isGemini3Pro = model?.toLowerCase().includes('gemini-3-pro-image')
     const messageContent =
         !images || images.length === 0
@@ -527,7 +531,7 @@ async function generateImage({ apiConfig, prompt, images, model, aspectRatio, im
 
     const messages = [{ role: 'user', content: messageContent }]
     const payload = {
-        model: model || apiConfig.model,
+        model: resolvedModel,
         messages,
         modalities: ['image', 'text']
     }
@@ -576,8 +580,15 @@ async function generateImage({ apiConfig, prompt, images, model, aspectRatio, im
         throw new Error(textResponse || '模型未返回图像')
     }
 
-    const textResponse = extractTextResponse(choice.content)
-    return { imageUrl, textResponse }
+    const textResponseRaw = extractTextResponse(choice.content)
+    const textResponse = filterTextResponse(textResponseRaw)
+    return {
+        imageUrl,
+        textResponse,
+        modelUsed: resolvedModel,
+        aspectRatioUsed: aspectRatio,
+        imageSizeUsed: imageSize
+    }
 }
 
 function extractImageFromContent(content) {
@@ -701,7 +712,24 @@ function extractTextResponse(content) {
     return ''
 }
 
-async function persistGalleryEntry({ prompt, responseText, imageSource, configLabel, configId }) {
+function filterTextResponse(text) {
+    if (!text || typeof text !== 'string') return ''
+    const lines = text
+        .split(/\r?\n/)
+        .map(line => line.trim())
+        .filter(Boolean)
+        .filter(line => {
+            if (/data:image\//i.test(line)) return false
+            if (isLikelyImageUrl(line)) return false
+            if (/\[generated\s*image\]/i.test(line)) return false
+            // very long base64-like strings
+            if (/[A-Za-z0-9+/]{80,}={0,2}/.test(line)) return false
+            return true
+        })
+    return lines.join('\n')
+}
+
+async function persistGalleryEntry({ prompt, responseText, imageSource, configLabel, configId, modelId, aspectRatio, imageSize }) {
     const { fileName, imagePath, dataUrl } = await saveImageToGallery(imageSource)
     const entries = await loadGallery()
     const entry = {
@@ -712,6 +740,9 @@ async function persistGalleryEntry({ prompt, responseText, imageSource, configLa
         fileName,
         configLabel,
         configId,
+        modelId: modelId || '',
+        aspectRatio: aspectRatio || '',
+        imageSize: imageSize || '',
         createdAt: new Date().toISOString()
     }
     entries.unshift(entry)

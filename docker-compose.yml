@@ -12,8 +12,8 @@ services:
       - "51130:51130"
     volumes:
       - ./server/config/app.config.json:/app/server/config/app.config.json
-      - gallery-data:/app/server/gallery
-      - gallery-meta:/app/server/data
+      - ./server/gallery:/app/server/gallery
+      - ./server/data:/app/server/data
 
   frontend:
     build:
@@ -28,10 +28,6 @@ services:
       - "51131:80"
     depends_on:
       - backend
-
-volumes:
-  gallery-data:
-  gallery-meta:
 
 networks:
   nano-banana-net:
