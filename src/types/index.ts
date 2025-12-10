@@ -81,6 +81,7 @@ export interface GalleryEntry {
     prompt: string
     responseText: string
     imagePath: string
+    thumbnailPath?: string
     fileName: string
     configLabel: string
     configId: string

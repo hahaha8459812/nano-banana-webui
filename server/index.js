@@ -7,6 +7,7 @@ import { fileURLToPath } from 'url'
 import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
 import { v4 as uuid } from 'uuid'
+import sharp from 'sharp'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -16,6 +17,7 @@ const CONFIG_EXAMPLE_PATH = path.join(__dirname, 'config', 'app.config.example.j
 const DATA_DIR = path.join(__dirname, 'data')
 const GALLERY_DATA_PATH = path.join(DATA_DIR, 'gallery.json')
 const GALLERY_DIR = path.join(__dirname, 'gallery')
+const THUMBNAILS_DIR = path.join(GALLERY_DIR, 'thumbnails')
 
 const PORT = process.env.PORT || 51130
 
@@ -50,6 +52,7 @@ app.use((req, res, next) => {
 app.use('/gallery', express.static(GALLERY_DIR))
 
 ensureDirectories()
+ensureThumbnails()
 
 function ensureDirectories() {
     if (!fs.existsSync(path.dirname(CONFIG_PATH))) {
@@ -72,9 +75,59 @@ function ensureDirectories() {
         logInfo('init', '??????? gallery/')
     }
 
+    if (!fs.existsSync(THUMBNAILS_DIR)) {
+        fs.mkdirSync(THUMBNAILS_DIR, { recursive: true })
+        logInfo('init', '已初始化 gallery/thumbnails/')
+    }
+
     if (!fs.existsSync(GALLERY_DATA_PATH)) {
         fs.writeFileSync(GALLERY_DATA_PATH, JSON.stringify([]))
         logInfo('init', '???? gallery.json')
+    }
+}
+
+async function ensureThumbnails() {
+    try {
+        logInfo('init', '正在检查并生成缺失的缩略图...')
+        const entries = await loadGallery()
+        let changed = false
+
+        for (const entry of entries) {
+            // 检查数据字段
+            if (!entry.thumbnailPath && entry.fileName) {
+                entry.thumbnailPath = `/gallery/thumbnails/thumb-${entry.fileName}`
+                changed = true
+            }
+
+            // 检查物理文件
+            if (entry.fileName) {
+                const originalPath = path.join(GALLERY_DIR, entry.fileName)
+                const thumbnailFileName = `thumb-${entry.fileName}`
+                const thumbnailPath = path.join(THUMBNAILS_DIR, thumbnailFileName)
+
+                if (fs.existsSync(originalPath) && !fs.existsSync(thumbnailPath)) {
+                    try {
+                        await sharp(originalPath)
+                            .resize(400, 400, {
+                                fit: 'cover',
+                                position: 'center'
+                            })
+                            .toFile(thumbnailPath)
+                        logInfo('init', `已生成缩略图: ${thumbnailFileName}`)
+                    } catch (err) {
+                        logError('init', `生成缩略图失败: ${thumbnailFileName}`, err)
+                    }
+                }
+            }
+        }
+
+        if (changed) {
+            await saveGallery(entries)
+            logInfo('init', '已更新 gallery.json 中的缩略图路径')
+        }
+        logInfo('init', '缩略图检查完成')
+    } catch (error) {
+        logError('init', '缩略图检查失败', error)
     }
 }
 
@@ -730,13 +783,14 @@ function filterTextResponse(text) {
 }
 
 async function persistGalleryEntry({ prompt, responseText, imageSource, configLabel, configId, modelId, aspectRatio, imageSize }) {
-    const { fileName, imagePath, dataUrl } = await saveImageToGallery(imageSource)
+    const { fileName, imagePath, thumbnailPath, dataUrl } = await saveImageToGallery(imageSource)
     const entries = await loadGallery()
     const entry = {
         id: uuid(),
         prompt,
         responseText: responseText || '',
         imagePath,
+        thumbnailPath,
         fileName,
         configLabel,
         configId,
@@ -778,8 +832,30 @@ async function saveImageToGallery(imageSource) {
     const fileName = `${Date.now()}-${uuid()}.${extension}`
     const filePath = path.join(GALLERY_DIR, fileName)
     await fs.promises.writeFile(filePath, buffer)
+
+    // Generate thumbnail
+    const thumbnailFileName = `thumb-${fileName}`
+    const thumbnailPath = path.join(THUMBNAILS_DIR, thumbnailFileName)
+    try {
+        await sharp(buffer)
+            .resize(400, 400, {
+                fit: 'cover',
+                position: 'center'
+            })
+            .toFile(thumbnailPath)
+    } catch (error) {
+        logError('gallery', '生成缩略图失败', error)
+        // Fallback to original image if thumbnail generation fails
+        await fs.promises.copyFile(filePath, thumbnailPath).catch(() => {})
+    }
+
     const dataUrl = `data:image/${extension};base64,${buffer.toString('base64')}`
-    return { fileName, imagePath: `/gallery/${fileName}`, dataUrl }
+    return {
+        fileName,
+        imagePath: `/gallery/${fileName}`,
+        thumbnailPath: `/gallery/thumbnails/${thumbnailFileName}`,
+        dataUrl
+    }
 }
 
 
@@ -796,6 +872,10 @@ app.delete('/api/gallery/:id', authMiddleware, async (req, res) => {
             const filePath = path.join(GALLERY_DIR, removed.fileName)
             if (fs.existsSync(filePath)) {
                 await fs.promises.unlink(filePath).catch(() => null)
+            }
+            const thumbnailPath = path.join(THUMBNAILS_DIR, `thumb-${removed.fileName}`)
+            if (fs.existsSync(thumbnailPath)) {
+                await fs.promises.unlink(thumbnailPath).catch(() => null)
             }
         }
         logInfo('gallery', `?????? ${removed.id}`)

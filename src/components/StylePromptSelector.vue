@@ -1,12 +1,12 @@
 <template>
-    <div class="bg-white border-4 border-black border-t-0 rounded-b-lg p-4 shadow-lg h-full flex flex-col gap-4">
+    <div class="h-full flex flex-col gap-4">
         <div class="flex items-center justify-between flex-wrap gap-2">
-            <div class="flex bg-gray-100 rounded-lg p-1 border-2 border-black">
+            <div class="flex bg-dark-bg rounded-lg p-1 border border-dark-border">
                 <button
                     @click="activeTab = 'style'"
                     :class="[
-                        'flex-1 py-2 px-3 rounded-md font-bold transition-all flex items-center justify-center gap-2',
-                        activeTab === 'style' ? 'bg-yellow-300 text-black' : 'text-gray-600 hover:text-black'
+                        'flex-1 py-1.5 px-3 rounded-md font-bold transition-all flex items-center justify-center gap-2 text-sm',
+                        activeTab === 'style' ? 'bg-dark-surfaceHighlight text-dark-accent shadow-sm' : 'text-dark-muted hover:text-dark-text'
                     ]"
                 >
                     🍱 预设风格
@@ -14,29 +14,32 @@
                 <button
                     @click="activeTab = 'custom'"
                     :class="[
-                        'flex-1 py-2 px-3 rounded-md font-bold transition-all flex items-center justify-center gap-2',
-                        activeTab === 'custom' ? 'bg-yellow-300 text-black' : 'text-gray-600 hover:text-black'
+                        'flex-1 py-1.5 px-3 rounded-md font-bold transition-all flex items-center justify-center gap-2 text-sm',
+                        activeTab === 'custom' ? 'bg-dark-surfaceHighlight text-dark-accent shadow-sm' : 'text-dark-muted hover:text-dark-text'
                     ]"
                 >
-                    ✍️ 自定义提示词
+                    ✍️ 自定义
                 </button>
             </div>
-            <button
+            <BaseButton
                 @click="openCreateForm"
-                class="px-3 py-2 bg-green-400 text-black border-2 border-black rounded-lg font-semibold text-sm hover:bg-green-500 transition"
+                variant="secondary"
+                class="text-sm py-1.5 px-3"
             >
-                ➕ 新建模板
-            </button>
+                ➕ 新建
+            </BaseButton>
         </div>
 
-        <div v-if="activeTab === 'style'" class="space-y-2 flex-1 overflow-y-auto">
+        <div v-if="activeTab === 'style'" class="space-y-2 flex-1 overflow-y-auto custom-scrollbar pr-1">
             <div
                 v-for="template in templates"
                 :key="template.id"
                 @click="selectStyle(template.id)"
                 :class="[
-                    'p-4 rounded-lg border-2 border-black cursor-pointer transition-all',
-                    selectedStyle === template.id ? 'bg-yellow-300 border-orange-500' : 'bg-yellow-50 hover:bg-yellow-100'
+                    'p-3 rounded-xl border cursor-pointer transition-all duration-200 group',
+                    selectedStyle === template.id
+                        ? 'bg-dark-surfaceHighlight border-dark-accent shadow-glow'
+                        : 'bg-dark-bg border-dark-border hover:border-dark-muted/50'
                 ]"
             >
                 <div class="flex items-start gap-3">
@@ -44,36 +47,36 @@
                         v-if="template.image"
                         :src="template.image"
                         :alt="template.title"
-                        class="w-20 h-20 rounded border-2 border-black object-cover flex-shrink-0"
+                        class="w-16 h-16 rounded-lg border border-dark-border object-cover flex-shrink-0"
                     />
 
-                    <div class="flex-1 min-w-0 space-y-2">
+                    <div class="flex-1 min-w-0 space-y-1">
                         <div class="flex items-center justify-between gap-2">
-                            <div class="text-base font-bold">{{ template.title }}</div>
-                            <div class="flex items-center gap-2">
+                            <div class="text-sm font-bold text-dark-text">{{ template.title }}</div>
+                            <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                                 <button
-                                    class="text-xs px-2 py-1 border border-black rounded bg-white hover:bg-gray-100"
+                                    class="text-xs px-2 py-1 rounded bg-dark-surface hover:bg-dark-border text-dark-muted hover:text-dark-text"
                                     @click.stop="openEditForm(template)"
                                 >
-                                    ✏️ 编辑
+                                    ✏️
                                 </button>
                                 <button
-                                    class="text-xs px-2 py-1 border border-black rounded bg-white hover:bg-gray-100 text-red-600"
+                                    class="text-xs px-2 py-1 rounded bg-dark-surface hover:bg-dark-danger/20 text-dark-danger"
                                     @click.stop="emit('delete-template', template.id)"
                                 >
-                                    🗑 删除
+                                    🗑
                                 </button>
                             </div>
                         </div>
-                        <p class="text-sm text-gray-600">{{ template.description }}</p>
-                        <details class="group">
-                            <summary class="cursor-pointer text-xs text-gray-500 hover:text-gray-700 flex items-center gap-1">
-                                <span>查看完整提示词</span>
-                                <svg class="w-3 h-3 transition-transform group-open:rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <p class="text-xs text-dark-muted line-clamp-1">{{ template.description }}</p>
+                        <details class="group/details">
+                            <summary class="cursor-pointer text-[10px] text-dark-muted/70 hover:text-dark-muted flex items-center gap-1 mt-1">
+                                <span>提示词</span>
+                                <svg class="w-3 h-3 transition-transform group-open/details:rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
                                 </svg>
                             </summary>
-                            <div class="mt-2 p-2 bg-gray-100 rounded text-xs text-gray-700 border break-words">
+                            <div class="mt-1 p-2 bg-dark-bg/50 rounded text-[10px] text-dark-muted border border-dark-border/50 break-words">
                                 {{ template.prompt }}
                             </div>
                         </details>
@@ -82,44 +85,51 @@
             </div>
         </div>
 
-        <div v-else class="flex flex-col gap-3 flex-1">
-            <label class="font-bold flex items-center gap-2">🍌 描述你的创意想法：</label>
-            <textarea
-                :value="customPrompt"
-                @input="updateCustomPrompt(($event.target as HTMLTextAreaElement).value)"
+        <div v-else class="flex flex-col gap-3 flex-1 h-full">
+            <BaseInput
+                type="textarea"
+                :modelValue="customPrompt"
+                @update:modelValue="updateCustomPrompt"
+                label="🍌 描述你的创意想法："
                 placeholder="例如：把角色转为写实风格，加入金属质感与高对比灯光..."
-                class="w-full px-4 py-3 border-2 border-black rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent flex-1 min-h-[160px]"
+                :rows="8"
+                class="flex-1 h-full"
             />
-            <p class="text-sm text-gray-600 font-medium flex items-center gap-1">💡 描述越详细，结果越可控。</p>
+            <p class="text-xs text-dark-muted font-medium flex items-center gap-1">💡 描述越详细，结果越可控。</p>
         </div>
 
-        <form v-if="showEditor" class="bg-gray-100 border-2 border-dashed border-gray-400 rounded-lg p-4 space-y-3" @submit.prevent="handleSubmit">
+        <form v-if="showEditor" class="bg-dark-bg border border-dashed border-dark-border rounded-lg p-4 space-y-3" @submit.prevent="handleSubmit">
             <div class="flex items-center justify-between gap-2">
-                <h4 class="font-bold text-gray-700">{{ editorMode === 'create' ? '新增模板' : '编辑模板' }}</h4>
-                <button type="button" class="text-sm text-gray-500 hover:text-gray-800" @click="closeEditor">✖ 关闭</button>
+                <h4 class="font-bold text-dark-text">{{ editorMode === 'create' ? '新增模板' : '编辑模板' }}</h4>
+                <button type="button" class="text-sm text-dark-muted hover:text-dark-text" @click="closeEditor">✖ 关闭</button>
             </div>
             <div class="grid md:grid-cols-2 gap-3">
-                <label class="text-sm font-semibold text-gray-700 flex flex-col gap-1">
-                    模板标题
-                    <input v-model="form.title" required class="px-3 py-2 border-2 border-black rounded-lg" />
-                </label>
-                <label class="text-sm font-semibold text-gray-700 flex flex-col gap-1">
-                    示例图地址
-                    <input v-model="form.image" class="px-3 py-2 border-2 border-black rounded-lg" placeholder="/preview.png" />
-                </label>
+                <BaseInput
+                    label="模板标题"
+                    v-model="form.title"
+                    required
+                />
+                <BaseInput
+                    label="示例图地址"
+                    v-model="form.image"
+                    placeholder="/preview.png"
+                />
             </div>
-            <label class="text-sm font-semibold text-gray-700 flex flex-col gap-1">
-                描述
-                <input v-model="form.description" class="px-3 py-2 border-2 border-black rounded-lg" />
-            </label>
-            <label class="text-sm font-semibold text-gray-700 flex flex-col gap-1">
-                提示词
-                <textarea v-model="form.prompt" required class="px-3 py-2 border-2 border-black rounded-lg min-h-[120px]" />
-            </label>
-            <p v-if="formError" class="text-sm text-red-600 font-semibold">{{ formError }}</p>
+            <BaseInput
+                label="描述"
+                v-model="form.description"
+            />
+            <BaseInput
+                type="textarea"
+                label="提示词"
+                v-model="form.prompt"
+                required
+                :rows="3"
+            />
+            <p v-if="formError" class="text-sm text-dark-danger font-semibold">{{ formError }}</p>
             <div class="flex items-center gap-2 justify-end">
-                <button type="button" class="px-4 py-2 border-2 border-black rounded-lg bg-white hover:bg-gray-200" @click="closeEditor">取消</button>
-                <button type="submit" class="px-4 py-2 border-2 border-black rounded-lg bg-orange-400 hover:bg-orange-500 text-white font-semibold">保存</button>
+                <BaseButton type="button" @click="closeEditor" variant="secondary">取消</BaseButton>
+                <BaseButton type="submit" variant="primary">保存</BaseButton>
             </div>
         </form>
     </div>
@@ -127,6 +137,8 @@
 
 <script setup lang="ts">
 import { reactive, ref, watch } from 'vue'
+import BaseButton from './BaseButton.vue'
+import BaseInput from './BaseInput.vue'
 import type { StyleTemplate } from '../types'
 
 const props = defineProps<{

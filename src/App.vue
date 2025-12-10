@@ -1,39 +1,36 @@
 <template>
-    <div class="min-h-screen bg-gradient-to-br from-yellow-200 via-yellow-300 to-orange-200 text-gray-900 relative overflow-hidden">
-        <div class="absolute top-10 left-10 text-6xl opacity-20 animate-bounce">🍌</div>
-        <div class="absolute top-32 right-20 text-4xl opacity-30 animate-pulse">🍌</div>
-        <div class="absolute bottom-20 left-32 text-5xl opacity-25 animate-bounce delay-1000">🍌</div>
-        <div class="absolute bottom-40 right-10 text-3xl opacity-20 animate-pulse delay-500">🍌</div>
-
+    <div :class="['min-h-screen relative overflow-hidden', 'theme-dark']">
         <div class="container mx-auto px-3 py-4 relative z-10">
             <div class="relative mb-6">
-                <div class="bg-gradient-to-r from-orange-400 to-yellow-500 rounded-lg p-6 border-4 border-black shadow-lg">
+                <BaseCard class="bg-skin-card">
                     <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
                         <div class="text-center md:text-left">
-                            <h1 class="text-4xl font-black text-white mb-1 flex items-center gap-2 justify-center md:justify-start">
-                                🍌 Nano <span class="text-yellow-100 text-5xl">Banana</span>
+                            <h1 class="text-4xl font-black mb-1 flex items-center gap-2 justify-center md:justify-start">
+                                IMAGE 工作室
                             </h1>
-                            <p class="text-white text-base font-medium">上传灵感，服务器帮你静默调用 OpenRouter/Gemini</p>
+                            <p class="text-base font-medium">上传灵感，后端代你调用任意 API</p>
                         </div>
-                        <div v-if="isAuthenticated" class="flex flex-wrap gap-2 justify-center md:justify-end">
-                            <button
-                                @click="viewMode = 'workspace'"
-                                :class="viewMode === 'workspace' ? activeTabClass : inactiveTabClass"
-                            >
-                                🎨 工作区
-                            </button>
-                            <button
-                                @click="viewMode = 'gallery'"
-                                :class="viewMode === 'gallery' ? activeTabClass : inactiveTabClass"
-                            >
-                                🖼 图库
-                            </button>
-                            <button @click="handleLogout" class="px-4 py-2 rounded-lg border-2 border-black bg-black text-white font-semibold hover:bg-gray-900">
-                                退出登录
-                            </button>
+                        <div class="flex flex-wrap gap-2 justify-center md:justify-end">
+                            <template v-if="isAuthenticated">
+                                <BaseButton
+                                    @click="viewMode = 'workspace'"
+                                    :variant="viewMode === 'workspace' ? 'primary' : 'secondary'"
+                                >
+                                    🎨 工作区
+                                </BaseButton>
+                                <BaseButton
+                                    @click="viewMode = 'gallery'"
+                                    :variant="viewMode === 'gallery' ? 'primary' : 'secondary'"
+                                >
+                                    🖼 图库
+                                </BaseButton>
+                                <BaseButton @click="handleLogout" variant="secondary">
+                                    退出登录
+                                </BaseButton>
+                            </template>
                         </div>
                     </div>
-                </div>
+                </BaseCard>
             </div>
 
             <div v-if="uiNotice" class="mb-4">
@@ -47,56 +44,54 @@
                 </div>
             </div>
 
-            <div v-if="!isAuthenticated" class="max-w-md mx-auto bg-white border-4 border-black rounded-2xl p-6 shadow-xl">
-                <h2 class="text-2xl font-black text-center mb-4">🔐 输入工作密码</h2>
-                <form class="space-y-4" @submit.prevent="handleLogin">
-                    <div class="space-y-2">
-                        <label class="font-bold flex items-center gap-2 text-base">
-                            <span>🌐 后端 API 地址</span>
-                        </label>
-                        <div class="flex flex-col gap-2">
-                            <input
-                                type="text"
+            <div v-if="!isAuthenticated" class="max-w-md mx-auto">
+                <BaseCard title="🔐 输入工作密码">
+                    <form class="space-y-4" @submit.prevent="handleLogin">
+                        <div class="space-y-2">
+                            <BaseInput
+                                label="🌐 后端 API 地址"
                                 v-model="serverBaseUrl"
                                 @input="clearBaseUrlMessage"
                                 placeholder="https://example.com:51130"
-                                class="w-full px-4 py-3 border-2 border-black rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+                                :error="baseUrlError"
+                                :hint="baseUrlHint"
                             />
                             <div class="flex flex-col gap-2 sm:flex-row">
-                                <button
+                                <BaseButton
                                     type="button"
                                     @click="handleSaveServerBaseUrl"
-                                    class="flex-1 px-4 py-2 border-2 border-black rounded-lg bg-yellow-300 hover:bg-yellow-400 font-semibold"
+                                    variant="primary"
+                                    class="flex-1"
                                 >
                                     保存地址
-                                </button>
-                                <button
+                                </BaseButton>
+                                <BaseButton
                                     type="button"
                                     @click="resetServerBaseUrl"
-                                    class="flex-1 px-4 py-2 border-2 border-black rounded-lg bg-white hover:bg-gray-100 font-semibold"
+                                    variant="secondary"
+                                    class="flex-1"
                                 >
                                     恢复默认
-                                </button>
+                                </BaseButton>
                             </div>
                         </div>
-                        <p v-if="baseUrlError" class="text-sm text-red-500 flex items-center gap-1">⚠️ {{ baseUrlError }}</p>
-                        <p v-else-if="baseUrlHint" class="text-sm text-green-600 flex items-center gap-1">✅ {{ baseUrlHint }}</p>
-                    </div>
-                    <input
-                        type="password"
-                        v-model="password"
-                        placeholder="请输入部署者设置的密码"
-                        class="w-full px-4 py-3 border-2 border-black rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
-                    />
-                    <p v-if="authError" class="text-sm text-red-500">⚠️ {{ authError }}</p>
-                    <button
-                        type="submit"
-                        :disabled="!password.trim() || isAuthenticating"
-                        class="w-full px-4 py-3 font-bold text-white rounded-lg border-2 border-black bg-orange-500 hover:bg-orange-600 disabled:bg-gray-300 disabled:text-gray-600"
-                    >
-                        {{ isAuthenticating ? '正在验证...' : '进入工作区' }}
-                    </button>
-                </form>
+                        <BaseInput
+                            type="password"
+                            v-model="password"
+                            placeholder="请输入部署者设置的密码"
+                            :error="authError"
+                        />
+                        <BaseButton
+                            type="submit"
+                            :disabled="!password.trim() || isAuthenticating"
+                            :loading="isAuthenticating"
+                            variant="primary"
+                            block
+                        >
+                            {{ isAuthenticating ? '正在验证...' : '进入工作区' }}
+                        </BaseButton>
+                    </form>
+                </BaseCard>
             </div>
 
             <template v-else>
@@ -120,105 +115,103 @@
                     />
                 </div>
 
-                <div v-if="viewMode === 'workspace'" class="grid lg:grid-cols-2 gap-4 lg:gap-6 mb-6 lg:items-start">
-                    <div class="flex flex-col h-full gap-4">
-                        <div class="flex flex-col h-full">
-                            <div class="bg-gradient-to-r from-blue-400 to-purple-500 text-white font-bold px-4 py-2 rounded-t-lg border-4 border-black border-b-0 flex items-center gap-2">
-                                📝 文生图 · 灵感工作台
-                            </div>
-                            <div class="bg-white border-4 border-black border-t-0 rounded-b-lg p-5 shadow-lg flex flex-col h-full gap-4">
+                <div v-if="viewMode === 'workspace'" class="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-6 mb-6 lg:items-start">
+                    <div class="flex flex-col gap-4 order-2 lg:order-1">
+                        <div class="flex flex-col">
+                            <BaseCard title="📝 文生图 · 灵感工作台" class="h-full flex flex-col">
                                 <div class="flex flex-col gap-3 flex-1">
-                                    <label class="font-bold flex items-center gap-2 text-base">🍌 描述你的创意：</label>
-                                    <textarea
+                                    <BaseInput
+                                        type="textarea"
                                         v-model="textToImagePrompt"
+                                        label="🍌 描述你的创意："
                                         placeholder="如：暮色中的赛博都市，霓虹光影交错..."
-                                        class="w-full px-4 py-3 border-2 border-black rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent min-h-[160px] flex-1"
+                                        :rows="6"
+                                        class="flex-1"
                                     />
                                 </div>
-                                <p class="text-sm text-gray-600 font-medium flex items-center gap-2">
-                                    <span>💡</span>
-                                    <span>输入提示词后即可单击按钮生成，结果会自动保存到图库。</span>
-                                </p>
-                            </div>
+                                <template #footer>
+                                    <p class="text-xs sm:text-sm text-skin-muted font-medium flex items-center gap-2">
+                                        <span>💡</span>
+                                        <span>输入提示词后即可单击按钮生成，结果会自动保存到图库。</span>
+                                    </p>
+                                </template>
+                            </BaseCard>
                         </div>
 
                         <div v-if="showAspectRatioSelector" class="flex flex-col">
-                            <div class="bg-gradient-to-r from-purple-400 to-pink-500 text-white font-bold px-4 py-2 rounded-t-lg border-4 border-black border-b-0 flex items-center gap-2">
-                                🧮 图像宽高比
-                            </div>
-                            <AspectRatioSelector v-model="selectedAspectRatio" :model-type="showGemini3ProConfig ? 'gemini-3-pro-image' : 'default'" :image-size="gemini3ImageSize" />
+                            <BaseCard title="🧮 图像宽高比">
+                                <AspectRatioSelector v-model="selectedAspectRatio" :model-type="showGemini3ProConfig ? 'gemini-3-pro-image' : 'default'" :image-size="gemini3ImageSize" />
+                            </BaseCard>
                         </div>
 
                         <div v-if="showGemini3ProConfig" class="flex flex-col">
-                            <div class="bg-gradient-to-r from-indigo-400 to-purple-500 text-white font-bold px-4 py-2 rounded-t-lg border-4 border-black border-b-0 flex items-center gap-2">
-                                🧠 Gemini 3 Pro Image 参数
-                            </div>
-                            <Gemini3ProConfig v-model:imageSize="gemini3ImageSize" v-model:enableGoogleSearch="gemini3EnableGoogleSearch" />
+                            <BaseCard title="🧠 Gemini 3 Pro Image 参数">
+                                <Gemini3ProConfig v-model:imageSize="gemini3ImageSize" v-model:enableGoogleSearch="gemini3EnableGoogleSearch" />
+                            </BaseCard>
                         </div>
                     </div>
 
-                    <div class="flex flex-col gap-4 h-full">
-                        <div class="flex flex-col h-full">
-                            <div class="bg-pink-400 text-white font-bold px-4 py-2 rounded-t-lg border-4 border-black border-b-0 flex items-center gap-2">
-                                🖼 图文生图 · 上传参考
-                            </div>
-                            <div class="flex-1">
-                                <ImageUpload v-model="selectedImages" />
-                            </div>
+                    <div class="flex flex-col gap-4 h-full order-1 lg:order-2">
+                        <div class="flex flex-col">
+                            <BaseCard title="🖼 图文生图 · 上传参考" class="h-full flex flex-col">
+                                <div class="flex-1">
+                                    <ImageUpload v-model="selectedImages" />
+                                </div>
+                            </BaseCard>
                         </div>
 
                         <div class="flex flex-col h-full">
-                            <div class="bg-gradient-to-r from-green-400 to-blue-500 text-white font-bold px-4 py-2 rounded-t-lg border-4 border-black border-b-0 flex items-center gap-2">
-                                🎨 选择风格或自定义提示词
-                            </div>
-                            <div class="flex-1">
-                                <StylePromptSelector
-                                    v-model:selectedStyle="selectedStyle"
-                                    v-model:customPrompt="customPrompt"
-                                    :templates="templates"
-                                    @create-template="handleCreateTemplate"
-                                    @update-template="handleUpdateTemplate"
-                                    @delete-template="handleDeleteTemplate"
-                                />
-                            </div>
+                            <BaseCard title="🎨 选择风格或自定义提示词" class="h-full flex flex-col">
+                                <div class="flex-1">
+                                    <StylePromptSelector
+                                        v-model:selectedStyle="selectedStyle"
+                                        v-model:customPrompt="customPrompt"
+                                        :templates="templates"
+                                        @create-template="handleCreateTemplate"
+                                        @update-template="handleUpdateTemplate"
+                                        @delete-template="handleDeleteTemplate"
+                                    />
+                                </div>
+                            </BaseCard>
                         </div>
                     </div>
                 </div>
 
                 <div v-if="viewMode === 'workspace'" class="mb-6">
                     <div class="flex flex-col gap-4 lg:flex-row lg:gap-6">
-                        <button
+                        <BaseButton
                             @click="handleTextToImageGenerate"
                             :disabled="!canGenerateTextImage"
-                            :class="generateButtonClass(canGenerateTextImage)"
+                            :loading="isTextToImageLoading"
+                            variant="primary"
+                            class="flex-1 py-4 text-xl"
                         >
-                            <span v-if="!isTextToImageLoading" class="flex items-center gap-2 text-xl">🍌 纯提示词生成</span>
-                            <span v-else class="flex items-center gap-2 text-xl">🍌 正在施法...</span>
-                            <div v-if="isTextToImageLoading" class="w-8 h-8 border-3 border-white/30 border-t-white rounded-full animate-spin" />
-                        </button>
-                        <button
+                            🍌 纯提示词生成
+                        </BaseButton>
+                        <BaseButton
                             @click="handleGenerate"
                             :disabled="!canGenerate"
-                            :class="generateImageButtonClass(canGenerate)"
+                            :loading="isLoading"
+                            variant="primary"
+                            class="flex-1 py-4 text-xl"
                         >
-                            <span v-if="!isLoading" class="flex items-center gap-2 text-xl">🍌 图文混合生成</span>
-                            <span v-else class="flex items-center gap-2 text-xl">🍌 正在施法...</span>
-                            <div v-if="isLoading" class="w-8 h-8 border-3 border-white/30 border-t-white rounded-full animate-spin" />
-                        </button>
+                            🍌 图文混合生成
+                        </BaseButton>
                     </div>
                 </div>
 
                 <div v-if="viewMode === 'workspace'" class="w-full">
-                    <div class="bg-black text-white font-bold px-4 py-2 rounded-t-lg border-4 border-black border-b-0 flex items-center gap-2">✅ 最新结果</div>
-                    <ResultDisplay
-                        :result="displayResult"
-                        :response-text="displayResponseText"
-                        :loading="displayLoading"
-                        :error="displayError"
-                        :can-push="canPushDisplayResult"
-                        @download="handleDownloadResult"
-                        @push="handlePushDisplayResult"
-                    />
+                    <BaseCard title="✅ 最新结果">
+                        <ResultDisplay
+                            :result="displayResult"
+                            :response-text="displayResponseText"
+                            :loading="displayLoading"
+                            :error="displayError"
+                            :can-push="canPushDisplayResult"
+                            @download="handleDownloadResult"
+                            @push="handlePushDisplayResult"
+                        />
+                    </BaseCard>
                 </div>
 
                 <div v-else class="mb-6">
@@ -231,8 +224,14 @@
                         @delete-entry="handleDeleteGalleryEntry"
                         @change-page="changeGalleryPage"
                         @show-detail="openGalleryDetail"
+                        @remix="handleRemix"
                     />
-                    <GalleryDetailModal :visible="Boolean(selectedGalleryEntry)" :entry="selectedGalleryEntry" @close="selectedGalleryEntry = null" />
+                    <GalleryDetailModal
+                        :visible="Boolean(selectedGalleryEntry)"
+                        :entry="selectedGalleryEntry"
+                        @close="selectedGalleryEntry = null"
+                        @remix="handleRemix"
+                    />
                 </div>
 
             </template>
@@ -242,6 +241,9 @@
 
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import BaseButton from './components/BaseButton.vue'
+import BaseCard from './components/BaseCard.vue'
+import BaseInput from './components/BaseInput.vue'
 import ApiConfigSelector from './components/ApiConfigSelector.vue'
 import ImageUpload from './components/ImageUpload.vue'
 import StylePromptSelector from './components/StylePromptSelector.vue'
@@ -279,6 +281,8 @@ import type {
 } from './types'
 import { DEFAULT_MODEL_ID } from './config/api'
 import { getApiBaseUrl, getDefaultApiBaseUrl, setApiBaseUrl } from './config/client'
+
+const theme = ref<'light' | 'dark'>('dark')
 
 const password = ref('')
 const authError = ref('')
@@ -333,7 +337,14 @@ const selectedAspectRatio = ref('1:1')
 const gemini3ImageSize = ref('2K')
 const gemini3EnableGoogleSearch = ref(false)
 const isApiConfigMutating = ref(false)
-type ApiConfigFormPayload = CreateApiConfigPayload & { apiKey?: string }
+type ApiConfigFormPayload = {
+    id: string
+    label: string
+    endpoint: string
+    model: string
+    description?: string
+    apiKey?: string
+}
 
 const activeTabClass = 'px-4 py-2 rounded-lg border-2 border-black bg-black text-white font-semibold shadow-lg'
 const inactiveTabClass = 'px-4 py-2 rounded-lg border-2 border-black bg-white text-black font-semibold hover:bg-yellow-200'
@@ -511,6 +522,7 @@ onMounted(async () => {
 onMounted(() => {
     handleGalleryResize()
     window.addEventListener('resize', handleGalleryResize)
+    applyTheme(theme.value)
 })
 
 onUnmounted(() => {
@@ -740,6 +752,13 @@ const handlePushDisplayResult = () => {
     pushImageToUpload(displayResult.value)
 }
 
+const handleRemix = (imagePath: string) => {
+    pushImageToUpload(imagePath)
+    selectedGalleryEntry.value = null
+    viewMode.value = 'workspace'
+    showNotice('success', '已将图片添加到参考图')
+}
+
 const pushImageToUpload = (image: string) => {
     if (!image) return
     const filtered = selectedImages.value.filter(existing => existing !== image)
@@ -783,21 +802,6 @@ const handleDownloadResult = async () => {
     }
 }
 
-const generateButtonClass = (enabled: boolean) =>
-    [
-        'flex-1 px-6 py-4 rounded-lg font-bold text-white text-lg transition-all duration-200 flex items-center justify-center gap-3 border-4 border-black shadow-lg',
-        enabled
-            ? 'bg-gradient-to-r from-purple-500 to-blue-500 hover:from-purple-600 hover:to-blue-600 hover:-translate-y-1 hover:shadow-xl'
-            : 'bg-gray-400 cursor-not-allowed'
-    ].join(' ')
-
-const generateImageButtonClass = (enabled: boolean) =>
-    [
-        'flex-1 px-6 py-4 rounded-lg font-bold text-white text-lg transition-all duration-200 flex items-center justify-center gap-3 border-4 border-black shadow-lg',
-        enabled
-            ? 'bg-gradient-to-r from-orange-400 to-yellow-500 hover:from-orange-500 hover:to-yellow-600 hover:-translate-y-1 hover:shadow-xl'
-            : 'bg-gray-400 cursor-not-allowed'
-    ].join(' ')
 
 const handleCreateTemplate = async (template: Omit<StyleTemplate, 'id'>) => {
     if (!authToken.value) return
@@ -952,8 +956,23 @@ const handleSetDefaultApiConfig = async (id: string) => {
 
 const normalizeGalleryEntry = (entry: GalleryEntry) => ({
     ...entry,
-    imagePath: withServerBase(entry.imagePath)
+    imagePath: withServerBase(entry.imagePath),
+    thumbnailPath: entry.thumbnailPath ? withServerBase(entry.thumbnailPath) : withServerBase(entry.imagePath)
 })
 
 const normalizeGalleryEntries = (entries: GalleryEntry[]) => entries.map(normalizeGalleryEntry)
+
+function applyTheme(value: 'light' | 'dark') {
+    if (typeof document === 'undefined') return
+    const root = document.documentElement
+    root.classList.remove('theme-dark', 'theme-light')
+    root.classList.add(value === 'dark' ? 'theme-dark' : 'theme-light')
+}
+
+watch(
+    () => theme.value,
+    newValue => {
+        applyTheme(newValue)
+    }
+)
 </script>

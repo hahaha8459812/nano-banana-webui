@@ -13,6 +13,7 @@
         "express": "^4.19.2",
         "jsonwebtoken": "^9.0.2",
         "morgan": "^1.10.0",
+        "sharp": "^0.34.5",
         "uuid": "^11.0.2"
     },
     "devDependencies": {

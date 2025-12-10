@@ -12,13 +12,13 @@ import type {
 } from '../types'
 
 async function request<T>(path: string, options: RequestInit = {}, token?: string): Promise<T> {
-    const headers: HeadersInit = {
-        'Content-Type': 'application/json',
-        ...(options.headers || {})
+    const headers = new Headers(options.headers || { 'Content-Type': 'application/json' })
+    if (!headers.has('Content-Type')) {
+        headers.set('Content-Type', 'application/json')
     }
 
     if (token) {
-        headers.Authorization = `Bearer ${token}`
+        headers.set('Authorization', `Bearer ${token}`)
     }
 
     const method = options.method || 'GET'

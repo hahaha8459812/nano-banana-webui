@@ -4,6 +4,62 @@
 
 @layer base {
     body {
-        @apply bg-dark-bg text-dark-text font-sans;
+        @apply bg-dark-bg text-dark-text font-sans antialiased selection:bg-dark-accent selection:text-white;
     }
+    
+    /* 滚动条样式 */
+    ::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+    }
+
+    ::-webkit-scrollbar-track {
+        @apply bg-dark-bg;
+    }
+
+    ::-webkit-scrollbar-thumb {
+        @apply bg-dark-border rounded-full hover:bg-dark-muted transition-colors;
+    }
+}
+
+@layer components {
+    /* 现代化深色模式组件类 */
+    .modern-box {
+        @apply bg-dark-surface border border-dark-border rounded-xl shadow-lg transition-all duration-300;
+    }
+
+    .modern-box-hover {
+        @apply hover:border-dark-muted/50 hover:shadow-glow hover:-translate-y-0.5;
+    }
+
+    .modern-btn {
+        @apply px-4 py-2 font-semibold rounded-lg transition-all duration-200 flex items-center justify-center gap-2 outline-none focus:ring-2 focus:ring-dark-accent/50 focus:ring-offset-2 focus:ring-offset-dark-bg;
+    }
+
+    .modern-btn-primary {
+        @apply bg-gradient-to-br from-dark-accent to-dark-accentHover text-white shadow-lg hover:shadow-glow hover:brightness-110 active:scale-[0.98];
+    }
+    
+    .modern-btn-secondary {
+        @apply bg-dark-surfaceHighlight text-dark-text border border-dark-border hover:bg-dark-border hover:text-white active:scale-[0.98];
+    }
+
+    .modern-input {
+        @apply w-full px-4 py-2.5 rounded-lg bg-dark-bg border border-dark-border text-dark-text placeholder-dark-muted/50 focus:outline-none focus:border-dark-accent focus:ring-1 focus:ring-dark-accent transition-all duration-200;
+    }
+    
+    .modern-label {
+        @apply block text-sm font-medium text-dark-muted mb-1.5 ml-0.5;
+    }
+}
+
+/* 过渡动画 */
+.fade-enter-active,
+.fade-leave-active {
+    transition: opacity 0.2s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+    opacity: 0;
 }

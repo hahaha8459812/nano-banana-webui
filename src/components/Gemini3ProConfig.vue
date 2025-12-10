@@ -1,14 +1,14 @@
 <template>
-    <div class="bg-white border-4 border-black border-t-0 rounded-b-lg p-4 shadow-lg space-y-4">
+    <div class="p-4 space-y-4">
         <!-- Image Size Selection -->
         <div>
-            <label class="block text-sm font-bold text-gray-800 mb-2 flex items-center gap-2">
+            <label class="modern-label">
                 📏 图像尺寸
             </label>
             <select
                 :value="imageSize"
                 @change="$emit('update:imageSize', ($event.target as HTMLInputElement).value)"
-                class="w-full px-3 py-2 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent text-sm font-medium"
+                class="modern-input"
             >
                 <option value="1K">1K - 标准清晰度</option>
                 <option value="2K">2K - 高清晰度</option>
@@ -19,23 +19,23 @@
   
         <!-- Google Search Toggle -->
         <div>
-            <label class="flex items-center gap-3 cursor-pointer">
+            <label class="flex items-center gap-3 cursor-pointer group">
                 <input
                     type="checkbox"
                     :checked="enableGoogleSearch"
                     @change="$emit('update:enableGoogleSearch', ($event.target as HTMLInputElement).checked)"
-                    class="w-4 h-4 text-purple-600 border-2 border-gray-300 rounded focus:ring-purple-500 focus:ring-2"
+                    class="w-4 h-4 text-dark-accent border-dark-border rounded focus:ring-dark-accent focus:ring-2 bg-dark-bg"
                 />
-                <span class="text-sm font-bold text-gray-800 flex items-center gap-2">
+                <span class="text-sm font-bold text-dark-text flex items-center gap-2 group-hover:text-dark-accent transition-colors">
                     🔍 启用谷歌搜索
                 </span>
             </label>
-            <p class="text-xs text-gray-500 mt-1 ml-7">
+            <p class="text-xs text-dark-muted mt-1 ml-7">
                 允许模型使用谷歌搜索获取最新信息来生成图像
             </p>
         </div>
 
-        <p class="text-xs text-gray-500 mt-2">
+        <p class="text-xs text-dark-muted mt-2">
             💡 Gemini 3 Pro Image 专用配置，同时作用于「文生图」与「图文生图」功能
         </p>
     </div>

@@ -1,18 +1,18 @@
 <template>
-    <div class="bg-white border-4 border-black border-t-0 rounded-b-lg p-4 shadow-lg">
-        <label class="block text-sm font-bold text-gray-800 mb-2 flex items-center gap-2">
+    <div class="p-4">
+        <label class="modern-label">
             📐 图像宽高比
         </label>
         <select
             :value="modelValue"
             @change="$emit('update:modelValue', ($event.target as HTMLInputElement).value)"
-            class="w-full px-3 py-2 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent text-sm font-medium"
+            class="modern-input"
         >
             <option v-for="option in aspectRatioOptions" :key="option.value" :value="option.value">
                 {{ option.label }}
             </option>
         </select>
-        <p class="text-xs text-gray-500 mt-2">
+        <p class="text-xs text-dark-muted mt-2 ml-1">
             💡 该设置同时作用于「文生图」与「图文生图」功能
         </p>
     </div>
