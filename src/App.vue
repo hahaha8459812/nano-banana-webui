@@ -67,6 +67,14 @@
                                 </BaseButton>
                                 <BaseButton
                                     type="button"
+                                    @click="fillCurrentHost"
+                                    variant="secondary"
+                                    class="flex-1"
+                                >
+                                    使用当前地址
+                                </BaseButton>
+                                <BaseButton
+                                    type="button"
                                     @click="resetServerBaseUrl"
                                     variant="secondary"
                                     class="flex-1"
@@ -447,6 +455,14 @@ const resetServerBaseUrl = () => {
     const restored = getDefaultApiBaseUrl()
     serverBaseUrl.value = setApiBaseUrl(restored)
     baseUrlHint.value = '已恢复默认地址'
+}
+
+const fillCurrentHost = () => {
+    if (typeof window === 'undefined' || !window.location) return
+    clearBaseUrlMessage()
+    const current = `${window.location.protocol}//${window.location.host}`
+    serverBaseUrl.value = setApiBaseUrl(current)
+    baseUrlHint.value = '已填入当前访问地址'
 }
 
 const displayLoading = computed(() => {
