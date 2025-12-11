@@ -27,14 +27,6 @@
                             >
                                 下载原图
                             </BaseButton>
-                            <BaseButton
-                                @click="$emit('remix', entry.imagePath)"
-                                variant="secondary"
-                                block
-                                icon="🎨"
-                            >
-                                二次创作
-                            </BaseButton>
                         </div>
                     </div>
                     <div>
@@ -62,7 +54,6 @@ const props = defineProps<{
 
 defineEmits<{
     close: []
-    remix: [imagePath: string]
 }>()
 
 const formatDate = (value: string) => {

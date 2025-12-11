@@ -17,14 +17,6 @@
                 <img :src="result" alt="生成的图像" class="max-w-full max-h-[600px] rounded-lg shadow-2xl object-contain" />
                 <div class="absolute bottom-4 right-4 flex flex-col gap-2 items-stretch opacity-0 group-hover:opacity-100 transition-opacity duration-300">
                     <BaseButton
-                        v-if="canPush"
-                        @click="$emit('push')"
-                        icon="🔁"
-                        variant="primary"
-                    >
-                        再次创作
-                    </BaseButton>
-                    <BaseButton
                         @click="$emit('download')"
                         icon="⬇️"
                         variant="primary"
@@ -62,12 +54,10 @@ defineProps<{
     result: string | null
     loading: boolean
     error: string | null
-    canPush: boolean
     responseText?: string | null
 }>()
 
 defineEmits<{
     download: []
-    push: []
 }>()
 </script>

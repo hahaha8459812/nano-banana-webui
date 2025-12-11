@@ -116,8 +116,8 @@
                 </div>
 
                 <div v-if="viewMode === 'workspace'" class="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-6 mb-6 lg:items-start">
-                    <div class="flex flex-col gap-4 order-2 lg:order-1">
-                        <div class="flex flex-col">
+                    <div v-if="!hasImageToImageInput" class="flex flex-col gap-4 order-2 lg:order-1" :class="{ 'lg:col-span-2': hasTextToImageInput }">
+                        <div class="flex flex-col h-full">
                             <BaseCard title="📝 文生图 · 灵感工作台" class="h-full flex flex-col">
                                 <div class="flex flex-col gap-3 flex-1">
                                     <BaseInput
@@ -137,21 +137,9 @@
                                 </template>
                             </BaseCard>
                         </div>
-
-                        <div v-if="showAspectRatioSelector" class="flex flex-col">
-                            <BaseCard title="🧮 图像宽高比">
-                                <AspectRatioSelector v-model="selectedAspectRatio" :model-type="showGemini3ProConfig ? 'gemini-3-pro-image' : 'default'" :image-size="gemini3ImageSize" />
-                            </BaseCard>
-                        </div>
-
-                        <div v-if="showGemini3ProConfig" class="flex flex-col">
-                            <BaseCard title="🧠 Gemini 3 Pro Image 参数">
-                                <Gemini3ProConfig v-model:imageSize="gemini3ImageSize" v-model:enableGoogleSearch="gemini3EnableGoogleSearch" />
-                            </BaseCard>
-                        </div>
                     </div>
 
-                    <div class="flex flex-col gap-4 h-full order-1 lg:order-2">
+                    <div v-if="!hasTextToImageInput" class="flex flex-col gap-4 h-full order-1 lg:order-2" :class="{ 'lg:col-span-2': hasImageToImageInput }">
                         <div class="flex flex-col">
                             <BaseCard title="🖼 图文生图 · 上传参考" class="h-full flex flex-col">
                                 <div class="flex-1">
@@ -177,9 +165,25 @@
                     </div>
                 </div>
 
+                <!-- Shared Configuration Section -->
+                <div v-if="viewMode === 'workspace' && (showAspectRatioSelector || showGemini3ProConfig)" class="mb-6 grid grid-cols-1 md:grid-cols-2 gap-4 lg:gap-6">
+                    <div v-if="showAspectRatioSelector" class="flex flex-col">
+                        <BaseCard title="🧮 图像宽高比">
+                            <AspectRatioSelector v-model="selectedAspectRatio" :model-type="showGemini3ProConfig ? 'gemini-3-pro-image' : 'default'" :image-size="gemini3ImageSize" />
+                        </BaseCard>
+                    </div>
+
+                    <div v-if="showGemini3ProConfig" class="flex flex-col">
+                        <BaseCard title="🧠 Gemini 3 Pro Image 参数">
+                            <Gemini3ProConfig v-model:imageSize="gemini3ImageSize" v-model:enableGoogleSearch="gemini3EnableGoogleSearch" />
+                        </BaseCard>
+                    </div>
+                </div>
+
                 <div v-if="viewMode === 'workspace'" class="mb-6">
                     <div class="flex flex-col gap-4 lg:flex-row lg:gap-6">
                         <BaseButton
+                            v-if="!hasImageToImageInput"
                             @click="handleTextToImageGenerate"
                             :disabled="!canGenerateTextImage"
                             :loading="isTextToImageLoading"
@@ -189,6 +193,7 @@
                             🍌 纯提示词生成
                         </BaseButton>
                         <BaseButton
+                            v-if="!hasTextToImageInput"
                             @click="handleGenerate"
                             :disabled="!canGenerate"
                             :loading="isLoading"
@@ -207,9 +212,7 @@
                             :response-text="displayResponseText"
                             :loading="displayLoading"
                             :error="displayError"
-                            :can-push="canPushDisplayResult"
                             @download="handleDownloadResult"
-                            @push="handlePushDisplayResult"
                         />
                     </BaseCard>
                 </div>
@@ -224,13 +227,11 @@
                         @delete-entry="handleDeleteGalleryEntry"
                         @change-page="changeGalleryPage"
                         @show-detail="openGalleryDetail"
-                        @remix="handleRemix"
                     />
                     <GalleryDetailModal
                         :visible="Boolean(selectedGalleryEntry)"
                         :entry="selectedGalleryEntry"
                         @close="selectedGalleryEntry = null"
-                        @remix="handleRemix"
                     />
                 </div>
 
@@ -472,8 +473,6 @@ const displayError = computed(() => {
     return error.value || textToImageError.value
 })
 
-const canPushDisplayResult = computed(() => Boolean(displayResult.value))
-
 const canGenerateTextImage = computed(
     () =>
         isAuthenticated.value &&
@@ -506,6 +505,9 @@ const showGemini3ProConfig = computed(() => {
     if (!modelId) return false
     return modelId.includes('gemini-3-pro-image')
 })
+
+const hasTextToImageInput = computed(() => textToImagePrompt.value.trim().length > 0)
+const hasImageToImageInput = computed(() => selectedImages.value.length > 0 || selectedStyle.value || customPrompt.value.trim().length > 0)
 
 onMounted(async () => {
     if (authToken.value) {
@@ -745,24 +747,6 @@ const handleGenerate = async () => {
     } finally {
         isLoading.value = false
     }
-}
-
-const handlePushDisplayResult = () => {
-    if (!displayResult.value) return
-    pushImageToUpload(displayResult.value)
-}
-
-const handleRemix = (imagePath: string) => {
-    pushImageToUpload(imagePath)
-    selectedGalleryEntry.value = null
-    viewMode.value = 'workspace'
-    showNotice('success', '已将图片添加到参考图')
-}
-
-const pushImageToUpload = (image: string) => {
-    if (!image) return
-    const filtered = selectedImages.value.filter(existing => existing !== image)
-    selectedImages.value = [image, ...filtered]
 }
 
 const handleDownloadResult = async () => {

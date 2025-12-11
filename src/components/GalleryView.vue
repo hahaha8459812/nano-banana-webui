@@ -107,7 +107,6 @@ defineEmits<{
     'change-page': [page: number]
     'delete-entry': [id: string]
     'show-detail': [entry: GalleryEntry]
-    'remix': [imagePath: string]
 }>()
 
 const handleImageError = (event: Event, item: GalleryEntry) => {

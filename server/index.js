@@ -17,6 +17,7 @@ const CONFIG_EXAMPLE_PATH = path.join(__dirname, 'config', 'app.config.example.j
 const DATA_DIR = path.join(__dirname, 'data')
 const GALLERY_DATA_PATH = path.join(DATA_DIR, 'gallery.json')
 const GALLERY_DIR = path.join(__dirname, 'gallery')
+const DIST_DIR = path.join(__dirname, '..', 'dist')
 const THUMBNAILS_DIR = path.join(GALLERY_DIR, 'thumbnails')
 
 const PORT = process.env.PORT || 51130
@@ -50,6 +51,9 @@ app.use((req, res, next) => {
     next()
 })
 app.use('/gallery', express.static(GALLERY_DIR))
+if (fs.existsSync(DIST_DIR)) {
+    app.use('/webui', express.static(DIST_DIR))
+}
 
 ensureDirectories()
 ensureThumbnails()
@@ -885,6 +889,12 @@ app.delete('/api/gallery/:id', authMiddleware, async (req, res) => {
         res.status(500).json({ message: '???????????' })
     }
 })
+
+if (fs.existsSync(DIST_DIR)) {
+    app.get(['/webui', '/webui/*'], (_req, res) => {
+        res.sendFile(path.join(DIST_DIR, 'index.html'))
+    })
+}
 
 app.listen(PORT, () => {
     console.log(`[server] 服务已启动，端口 ${PORT}`)

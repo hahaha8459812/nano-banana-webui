@@ -15,20 +15,6 @@ services:
       - ./server/gallery:/app/server/gallery
       - ./server/data:/app/server/data
 
-  frontend:
-    build:
-      context: .
-      dockerfile: Dockerfile.frontend
-      args:
-        VITE_API_BASE_URL: http://backend:51130
-    container_name: nano-banana-frontend
-    networks:
-      - nano-banana-net
-    ports:
-      - "51131:80"
-    depends_on:
-      - backend
-
 networks:
   nano-banana-net:
     driver: bridge
