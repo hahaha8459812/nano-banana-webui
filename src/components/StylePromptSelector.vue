@@ -30,58 +30,57 @@
             </BaseButton>
         </div>
 
-        <div v-if="activeTab === 'style'" class="space-y-2 flex-1 overflow-y-auto custom-scrollbar pr-1">
-            <div
-                v-for="template in templates"
-                :key="template.id"
-                @click="selectStyle(template.id)"
-                :class="[
-                    'p-3 rounded-xl border cursor-pointer transition-all duration-200 group',
-                    selectedStyle === template.id
-                        ? 'bg-dark-surfaceHighlight border-dark-accent shadow-glow'
-                        : 'bg-dark-bg border-dark-border hover:border-dark-muted/50'
-                ]"
-            >
-                <div class="flex items-start gap-3">
-                    <img
-                        v-if="template.image"
-                        :src="template.image"
-                        :alt="template.title"
-                        class="w-16 h-16 rounded-lg border border-dark-border object-cover flex-shrink-0"
-                    />
+        <div v-if="activeTab === 'style'" class="flex-1 overflow-y-auto custom-scrollbar pr-1 flex flex-col gap-3">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div
+                    v-for="template in paginatedTemplates"
+                    :key="template.id"
+                    @click="selectStyle(template.id)"
+                    :class="[
+                        'p-3 rounded-xl border cursor-pointer transition-all duration-200 group min-h-[88px]',
+                        selectedStyle === template.id
+                            ? 'bg-dark-surfaceHighlight border-dark-accent shadow-glow'
+                            : 'bg-dark-bg border-dark-border hover:border-dark-muted/50'
+                    ]"
+                >
+                    <div class="flex items-start gap-3">
+                        <img
+                            v-if="template.image"
+                            :src="template.image"
+                            :alt="template.title"
+                            class="w-14 h-14 rounded-lg border border-dark-border object-cover flex-shrink-0"
+                        />
 
-                    <div class="flex-1 min-w-0 space-y-1">
-                        <div class="flex items-center justify-between gap-2">
-                            <div class="text-sm font-bold text-dark-text">{{ template.title }}</div>
-                            <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                <button
-                                    class="text-xs px-2 py-1 rounded bg-dark-surface hover:bg-dark-border text-dark-muted hover:text-dark-text"
-                                    @click.stop="openEditForm(template)"
-                                >
-                                    ✏️
-                                </button>
-                                <button
-                                    class="text-xs px-2 py-1 rounded bg-dark-surface hover:bg-dark-danger/20 text-dark-danger"
-                                    @click.stop="emit('delete-template', template.id)"
-                                >
-                                    🗑
-                                </button>
+                        <div class="flex-1 min-w-0 space-y-1">
+                            <div class="flex items-center justify-between gap-2">
+                                <div class="text-sm font-bold text-dark-text truncate">{{ template.title }}</div>
+                                <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <button
+                                        class="text-xs px-2 py-1 rounded bg-dark-surface hover:bg-dark-border text-dark-muted hover:text-dark-text"
+                                        @click.stop="openEditForm(template)"
+                                        title="编辑"
+                                    >
+                                        ✏️
+                                    </button>
+                                    <button
+                                        class="text-xs px-2 py-1 rounded bg-dark-surface hover:bg-dark-danger/20 text-dark-danger"
+                                        @click.stop="emit('delete-template', template.id)"
+                                        title="删除"
+                                    >
+                                        🗑
+                                    </button>
+                                </div>
                             </div>
+                            <p class="text-xs text-dark-muted line-clamp-2">{{ template.description }}</p>
                         </div>
-                        <p class="text-xs text-dark-muted line-clamp-1">{{ template.description }}</p>
-                        <details class="group/details">
-                            <summary class="cursor-pointer text-[10px] text-dark-muted/70 hover:text-dark-muted flex items-center gap-1 mt-1">
-                                <span>提示词</span>
-                                <svg class="w-3 h-3 transition-transform group-open/details:rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
-                                </svg>
-                            </summary>
-                            <div class="mt-1 p-2 bg-dark-bg/50 rounded text-[10px] text-dark-muted border border-dark-border/50 break-words">
-                                {{ template.prompt }}
-                            </div>
-                        </details>
                     </div>
                 </div>
+            </div>
+
+            <div v-if="totalStylePages > 1" class="flex items-center justify-between gap-2 pt-1">
+                <BaseButton variant="secondary" :disabled="stylePage <= 1" @click="stylePage -= 1">上一页</BaseButton>
+                <div class="text-xs text-dark-muted font-semibold">第 {{ stylePage }} / {{ totalStylePages }} 页</div>
+                <BaseButton variant="secondary" :disabled="stylePage >= totalStylePages" @click="stylePage += 1">下一页</BaseButton>
             </div>
         </div>
 
@@ -136,7 +135,7 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import BaseButton from './BaseButton.vue'
 import BaseInput from './BaseInput.vue'
 import type { StyleTemplate } from '../types'
@@ -159,6 +158,8 @@ const activeTab = ref<'style' | 'custom'>('style')
 const showEditor = ref(false)
 const editorMode = ref<'create' | 'edit'>('create')
 const editingId = ref<string | null>(null)
+const isMobile = ref(false)
+const stylePage = ref(1)
 const form = reactive({
     title: '',
     description: '',
@@ -166,6 +167,27 @@ const form = reactive({
     image: ''
 })
 const formError = ref('')
+
+const stylesPerPage = computed(() => (isMobile.value ? 4 : 6))
+const totalStylePages = computed(() => Math.max(1, Math.ceil(props.templates.length / stylesPerPage.value)))
+const paginatedTemplates = computed(() => {
+    const start = (stylePage.value - 1) * stylesPerPage.value
+    return props.templates.slice(start, start + stylesPerPage.value)
+})
+
+function refreshIsMobile() {
+    if (typeof window === 'undefined') return
+    isMobile.value = window.matchMedia('(max-width: 639px)').matches
+}
+
+onMounted(() => {
+    refreshIsMobile()
+    window.addEventListener('resize', refreshIsMobile)
+})
+
+onUnmounted(() => {
+    window.removeEventListener('resize', refreshIsMobile)
+})
 
 watch(
     () => props.selectedStyle,
@@ -182,6 +204,14 @@ watch(
         if (newValue && activeTab.value !== 'custom') {
             activeTab.value = 'custom'
         }
+    }
+)
+
+watch(
+    () => props.templates.length,
+    () => {
+        stylePage.value = Math.min(stylePage.value, totalStylePages.value)
+        if (stylePage.value < 1) stylePage.value = 1
     }
 )
 
