@@ -123,54 +123,55 @@
                     />
                 </div>
 
-                <div v-if="viewMode === 'workspace'" class="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-6 mb-6 lg:items-start">
-                    <div v-if="!hasImageToImageInput" class="flex flex-col gap-4 order-2 lg:order-1" :class="{ 'lg:col-span-2': hasTextToImageInput }">
-                        <div class="flex flex-col h-full">
-                            <BaseCard title="📝 文生图 · 灵感工作台" class="h-full flex flex-col">
-                                <div class="flex flex-col gap-3 flex-1">
-                                    <BaseInput
-                                        type="textarea"
-                                        v-model="textToImagePrompt"
-                                        label="🍌 描述你的创意："
-                                        placeholder="如：暮色中的赛博都市，霓虹光影交错..."
-                                        :rows="6"
-                                        class="flex-1"
-                                    />
-                                </div>
-                                <template #footer>
-                                    <p class="text-xs sm:text-sm text-skin-muted font-medium flex items-center gap-2">
-                                        <span>💡</span>
-                                        <span>输入提示词后即可单击按钮生成，结果会自动保存到图库。</span>
-                                    </p>
-                                </template>
-                            </BaseCard>
-                        </div>
-                    </div>
+                <div v-if="viewMode === 'workspace'" class="mb-4 flex flex-wrap gap-2 justify-center">
+                    <BaseButton @click="workspaceMode = 'text'" :variant="workspaceMode === 'text' ? 'primary' : 'secondary'">
+                        📝 文生图
+                    </BaseButton>
+                    <BaseButton @click="workspaceMode = 'image'" :variant="workspaceMode === 'image' ? 'primary' : 'secondary'">
+                        🖼 图文生图
+                    </BaseButton>
+                </div>
 
-                    <div v-if="!hasTextToImageInput" class="flex flex-col gap-4 h-full order-1 lg:order-2" :class="{ 'lg:col-span-2': hasImageToImageInput }">
-                        <div class="flex flex-col">
-                            <BaseCard title="🖼 图文生图 · 上传参考" class="h-full flex flex-col">
-                                <div class="flex-1">
-                                    <ImageUpload v-model="selectedImages" />
-                                </div>
-                            </BaseCard>
+                <div v-if="viewMode === 'workspace' && workspaceMode === 'text'" class="mb-6">
+                    <BaseCard title="📝 文生图 · 灵感工作台" class="h-full flex flex-col">
+                        <div class="flex flex-col gap-3 flex-1">
+                            <BaseInput
+                                type="textarea"
+                                v-model="textToImagePrompt"
+                                label="🍌 描述你的创意："
+                                placeholder="如：暮色中的赛博都市，霓虹光影交错..."
+                                :rows="6"
+                                class="flex-1"
+                            />
                         </div>
+                        <template #footer>
+                            <p class="text-xs sm:text-sm text-skin-muted font-medium flex items-center gap-2">
+                                <span>💡</span>
+                                <span>输入提示词后即可单击按钮生成，结果会自动保存到图库。</span>
+                            </p>
+                        </template>
+                    </BaseCard>
+                </div>
 
-                        <div class="flex flex-col h-full">
-                            <BaseCard title="🎨 选择风格或自定义提示词" class="h-full flex flex-col">
-                                <div class="flex-1">
-                                    <StylePromptSelector
-                                        v-model:selectedStyle="selectedStyle"
-                                        v-model:customPrompt="customPrompt"
-                                        :templates="templates"
-                                        @create-template="handleCreateTemplate"
-                                        @update-template="handleUpdateTemplate"
-                                        @delete-template="handleDeleteTemplate"
-                                    />
-                                </div>
-                            </BaseCard>
+                <div v-if="viewMode === 'workspace' && workspaceMode === 'image'" class="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-6 mb-6 lg:items-start">
+                    <BaseCard title="🖼 图文生图 · 上传参考" class="h-full flex flex-col">
+                        <div class="flex-1">
+                            <ImageUpload v-model="selectedImages" />
                         </div>
-                    </div>
+                    </BaseCard>
+
+                    <BaseCard title="🎨 选择风格或自定义提示词" class="h-full flex flex-col">
+                        <div class="flex-1">
+                            <StylePromptSelector
+                                v-model:selectedStyle="selectedStyle"
+                                v-model:customPrompt="customPrompt"
+                                :templates="templates"
+                                @create-template="handleCreateTemplate"
+                                @update-template="handleUpdateTemplate"
+                                @delete-template="handleDeleteTemplate"
+                            />
+                        </div>
+                    </BaseCard>
                 </div>
 
                 <!-- Shared Configuration Section -->
@@ -191,7 +192,7 @@
                 <div v-if="viewMode === 'workspace'" class="mb-6">
                     <div class="flex flex-col gap-4 lg:flex-row lg:gap-6">
                         <BaseButton
-                            v-if="!hasImageToImageInput"
+                            v-if="workspaceMode === 'text'"
                             @click="handleTextToImageGenerate"
                             :disabled="!canGenerateTextImage"
                             :loading="isTextToImageLoading"
@@ -201,7 +202,7 @@
                             🍌 纯提示词生成
                         </BaseButton>
                         <BaseButton
-                            v-if="!hasTextToImageInput"
+                            v-if="workspaceMode === 'image'"
                             @click="handleGenerate"
                             :disabled="!canGenerate"
                             :loading="isLoading"
@@ -300,6 +301,7 @@ const isAuthenticating = ref(false)
 const authToken = ref(LocalStorage.getAuthToken())
 const isAuthenticated = computed(() => Boolean(authToken.value))
 const viewMode = ref<'workspace' | 'gallery'>('workspace')
+const workspaceMode = ref<'text' | 'image'>('text')
 
 const apiConfigs = ref<ApiConfigSummary[]>([])
 const defaultApiConfigId = ref('')
@@ -521,9 +523,6 @@ const showGemini3ProConfig = computed(() => {
     if (!modelId) return false
     return modelId.includes('gemini-3-pro-image')
 })
-
-const hasTextToImageInput = computed(() => textToImagePrompt.value.trim().length > 0)
-const hasImageToImageInput = computed(() => selectedImages.value.length > 0 || selectedStyle.value || customPrompt.value.trim().length > 0)
 
 onMounted(async () => {
     if (authToken.value) {
