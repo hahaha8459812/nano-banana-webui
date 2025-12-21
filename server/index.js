@@ -81,29 +81,46 @@ async function fetchWithRetry(url, options, { timeoutMs, retries, retryDelayMs }
     throw lastError || new Error('upstream request failed')
 }
 
-function logInfo(scope, message, extra) {
+function logInfo(scope, message, extra, requestId) {
     const time = new Date().toISOString()
+    const prefix = requestId ? `[${time}][${scope}][${requestId}]` : `[${time}][${scope}]`
     if (extra) {
-        console.log(`[${time}][${scope}] ${message}`, extra)
+        console.log(`${prefix} ${message}`, extra)
     } else {
-        console.log(`[${time}][${scope}] ${message}`)
+        console.log(`${prefix} ${message}`)
     }
 }
 
-function logError(scope, message, error) {
+function logError(scope, message, error, requestId) {
     const time = new Date().toISOString()
-    console.error(`[${time}][${scope}] ${message}`, error)
+    const prefix = requestId ? `[${time}][${scope}][${requestId}]` : `[${time}][${scope}]`
+    console.error(`${prefix} ${message}`, error)
 }
 
 app.use(cors())
 app.use(express.json({ limit: '20mb' }))
 app.use(express.urlencoded({ extended: true }))
-app.use(morgan('dev'))
+app.use((req, res, next) => {
+    req.requestId = uuid().slice(0, 8)
+    req._startAt = Date.now()
+    res.setHeader('x-request-id', req.requestId)
+    next()
+})
+
+morgan.token('id', req => req.requestId || '-')
+app.use(
+    morgan('[HTTP][:id] :method :url -> :status :response-time ms', {
+        stream: {
+            write: message => process.stdout.write(message)
+        }
+    })
+)
+
 app.use((req, res, next) => {
     const start = Date.now()
-    logInfo('HTTP', `收到 ${req.method} ${req.originalUrl}`)
+    logInfo('HTTP', `收到请求 ${req.method} ${req.originalUrl}`, { ip: req.ip }, req.requestId)
     res.on('finish', () => {
-        logInfo('HTTP', `${req.method} ${req.originalUrl} -> ${res.statusCode}，耗时 ${Date.now() - start}ms`)
+        logInfo('HTTP', `请求结束 ${req.method} ${req.originalUrl} -> ${res.statusCode}，耗时 ${Date.now() - start}ms`, null, req.requestId)
     })
     next()
 })
@@ -118,38 +135,38 @@ ensureThumbnails()
 function ensureDirectories() {
     if (!fs.existsSync(path.dirname(CONFIG_PATH))) {
         fs.mkdirSync(path.dirname(CONFIG_PATH), { recursive: true })
-        logInfo('init', '???????')
+        logInfo('初始化', '已创建配置目录')
     }
 
     if (!fs.existsSync(CONFIG_PATH) && fs.existsSync(CONFIG_EXAMPLE_PATH)) {
         fs.copyFileSync(CONFIG_EXAMPLE_PATH, CONFIG_PATH)
-        logInfo('init', '??????? app.config.json??????????')
+        logInfo('初始化', '已复制 app.config.example.json -> app.config.json')
     }
 
     if (!fs.existsSync(DATA_DIR)) {
         fs.mkdirSync(DATA_DIR, { recursive: true })
-        logInfo('init', '??????? data/')
+        logInfo('初始化', '已创建 data/')
     }
 
     if (!fs.existsSync(GALLERY_DIR)) {
         fs.mkdirSync(GALLERY_DIR, { recursive: true })
-        logInfo('init', '??????? gallery/')
+        logInfo('初始化', '已创建 gallery/')
     }
 
     if (!fs.existsSync(THUMBNAILS_DIR)) {
         fs.mkdirSync(THUMBNAILS_DIR, { recursive: true })
-        logInfo('init', '已初始化 gallery/thumbnails/')
+        logInfo('初始化', '已创建 gallery/thumbnails/')
     }
 
     if (!fs.existsSync(GALLERY_DATA_PATH)) {
         fs.writeFileSync(GALLERY_DATA_PATH, JSON.stringify([]))
-        logInfo('init', '???? gallery.json')
+        logInfo('初始化', '已创建 data/gallery.json')
     }
 }
 
 async function ensureThumbnails() {
     try {
-        logInfo('init', '正在检查并生成缺失的缩略图...')
+        logInfo('初始化', '正在检查并生成缺失的缩略图...')
         const entries = await loadGallery()
         let changed = false
 
@@ -174,9 +191,9 @@ async function ensureThumbnails() {
                                 position: 'center'
                             })
                             .toFile(thumbnailPath)
-                        logInfo('init', `已生成缩略图: ${thumbnailFileName}`)
+                        logInfo('初始化', `已生成缩略图: ${thumbnailFileName}`)
                     } catch (err) {
-                        logError('init', `生成缩略图失败: ${thumbnailFileName}`, err)
+                        logError('初始化', `生成缩略图失败: ${thumbnailFileName}`, err)
                     }
                 }
             }
@@ -184,11 +201,11 @@ async function ensureThumbnails() {
 
         if (changed) {
             await saveGallery(entries)
-            logInfo('init', '已更新 gallery.json 中的缩略图路径')
+            logInfo('初始化', '已更新 gallery.json 中的缩略图路径')
         }
-        logInfo('init', '缩略图检查完成')
+        logInfo('初始化', '缩略图检查完成')
     } catch (error) {
-        logError('init', '缩略图检查失败', error)
+        logError('初始化', '缩略图检查失败', error)
     }
 }
 
@@ -219,7 +236,7 @@ function sanitizeConfig(apiConfig) {
 function authMiddleware(req, res, next) {
     const header = req.headers.authorization
     if (!header) {
-            logInfo('login', '??????')
+        logInfo('鉴权', '缺少 Authorization 请求头', null, req.requestId)
         return res.status(401).json({ message: '未提供 Authorization 头' })
     }
 
@@ -243,13 +260,13 @@ function authMiddleware(req, res, next) {
             })
         })
         .catch(error => {
-        logError('auth', '????????', error)
+            logError('鉴权', '读取配置失败', error, req.requestId)
             res.status(500).json({ message: '无法读取配置' })
         })
 }
 
 app.post('/api/login', async (req, res) => {
-    logInfo('login', '??????')
+    logInfo('登录', '收到登录请求', null, req.requestId)
     const { password } = req.body
     if (!password) {
         return res.status(400).json({ message: '密码不能为空' })
@@ -272,15 +289,15 @@ app.post('/api/login', async (req, res) => {
         }
 
         if (!isValid) {
-            logInfo('login', '??????')
+            logInfo('登录', '密码错误', null, req.requestId)
             return res.status(401).json({ message: '密码错误' })
         }
 
         const token = jwt.sign({ role: 'admin' }, jwtSecret, { expiresIn: authConfig.tokenExpiresIn || '12h' })
-        logInfo('login', '???????? Token')
+        logInfo('登录', '登录成功，已签发 Token', null, req.requestId)
         res.json({ token })
     } catch (error) {
-        logError('login', '??????', error)
+        logError('登录', '登录失败', error, req.requestId)
         res.status(500).json({ message: '服务器异常，无法登录' })
     }
 })
@@ -294,10 +311,10 @@ app.get('/api/api-configs', authMiddleware, async (req, res) => {
         const config = await loadConfig()
         const configs = (config.apiConfigs || []).map(sanitizeConfig)
         const defaultConfigId = config.defaultApiConfigId || ''
-        logInfo('api-configs', `?? ${configs.length} ? API ??`)
+        logInfo('API 配置', `读取配置成功，共 ${configs.length} 条`, null, req.requestId)
         res.json({ configs, defaultConfigId })
     } catch (error) {
-        logError('api-configs', '??????', error)
+        logError('API 配置', '读取配置失败', error, req.requestId)
         res.status(500).json({ message: '???? API ??' })
     }
 })
@@ -327,10 +344,10 @@ app.post('/api/api-configs', authMiddleware, async (req, res) => {
             config.defaultApiConfigId = newItem.id
         }
         await saveConfig(config)
-        logInfo('api-configs', `???? ${newItem.id}`)
+        logInfo('API 配置', `已新增配置 ${newItem.id}`, { label: newItem.label }, req.requestId)
         res.json({ config: sanitizeConfig(newItem) })
     } catch (error) {
-        logError('api-configs', '??????', error)
+        logError('API 配置', '新增配置失败', error, req.requestId)
         res.status(500).json({ message: '???? API ??' })
     }
 })
@@ -358,10 +375,10 @@ app.put('/api/api-configs/:id', authMiddleware, async (req, res) => {
         list[index] = nextConfig
         config.apiConfigs = list
         await saveConfig(config)
-        logInfo('api-configs', `???? ${nextConfig.id}`)
+        logInfo('API 配置', `已更新配置 ${nextConfig.id}`, { label: nextConfig.label }, req.requestId)
         res.json({ config: sanitizeConfig(nextConfig) })
     } catch (error) {
-        logError('api-configs', '??????', error)
+        logError('API 配置', '更新配置失败', error, req.requestId)
         res.status(500).json({ message: '???? API ??' })
     }
 })
@@ -380,10 +397,10 @@ app.delete('/api/api-configs/:id', authMiddleware, async (req, res) => {
             config.defaultApiConfigId = list[0]?.id || ''
         }
         await saveConfig(config)
-        logInfo('api-configs', `???? ${removed.id}`)
+        logInfo('API 配置', `已删除配置 ${removed.id}`, { label: removed.label }, req.requestId)
         res.json({ config: sanitizeConfig(removed) })
     } catch (error) {
-        logError('api-configs', '??????', error)
+        logError('API 配置', '删除配置失败', error, req.requestId)
         res.status(500).json({ message: '???? API ??' })
     }
 })
@@ -399,10 +416,10 @@ app.post('/api/api-configs/:id/default', authMiddleware, async (req, res) => {
         }
         config.defaultApiConfigId = exists.id
         await saveConfig(config)
-        logInfo('api-configs', `??????????? ${exists.id}`)
+        logInfo('API 配置', `已设置默认配置 ${exists.id}`, { label: exists.label }, req.requestId)
         res.json({ defaultConfigId: exists.id })
     } catch (error) {
-        logError('api-configs', '??????????????', error)
+        logError('API 配置', '设置默认配置失败', error, req.requestId)
         res.status(500).json({ message: '?????????? API ?????' })
     }
 })
@@ -427,10 +444,10 @@ app.get('/api/templates', authMiddleware, async (req, res) => {
     try {
         const config = await loadConfig()
         const templates = config.templates || []
-        logInfo('templates', `?? ${templates.length} ???`)
+        logInfo('模板', `读取模板成功，共 ${templates.length} 条`, null, req.requestId)
         res.json({ templates })
     } catch (error) {
-        logError('templates', '读取模板失败', error)
+        logError('模板', '读取模板失败', error, req.requestId)
         res.status(500).json({ message: '无法读取模板' })
     }
 })
@@ -454,10 +471,10 @@ app.post('/api/templates', authMiddleware, async (req, res) => {
         templates.push(newTemplate)
         config.templates = templates
         await saveConfig(config)
-        logInfo('templates', `???? ${newTemplate.id}`)
+        logInfo('模板', `已新增模板 ${newTemplate.id}`, { title: newTemplate.title }, req.requestId)
         res.json({ template: newTemplate })
     } catch (error) {
-        logError('templates', '新增模板失败', error)
+        logError('模板', '新增模板失败', error, req.requestId)
         res.status(500).json({ message: '无法保存模板' })
     }
 })
@@ -480,10 +497,10 @@ app.put('/api/templates/:id', authMiddleware, async (req, res) => {
         }
         config.templates = templates
         await saveConfig(config)
-        logInfo('templates', `???? ${templates[index].id}`)
+        logInfo('模板', `已更新模板 ${templates[index].id}`, { title: templates[index].title }, req.requestId)
         res.json({ template: templates[index] })
     } catch (error) {
-        logError('templates', '更新模板失败', error)
+        logError('模板', '更新模板失败', error, req.requestId)
         res.status(500).json({ message: '无法更新模板' })
     }
 })
@@ -499,10 +516,10 @@ app.delete('/api/templates/:id', authMiddleware, async (req, res) => {
         const removed = templates.splice(index, 1)[0]
         config.templates = templates
         await saveConfig(config)
-        logInfo('templates', `???? ${removed.id}`)
+        logInfo('模板', `已删除模板 ${removed.id}`, { title: removed.title }, req.requestId)
         res.json({ template: removed })
     } catch (error) {
-        logError('templates', '删除模板失败', error)
+        logError('模板', '删除模板失败', error, req.requestId)
         res.status(500).json({ message: '无法删除模板' })
     }
 })
@@ -510,10 +527,10 @@ app.delete('/api/templates/:id', authMiddleware, async (req, res) => {
 app.get('/api/gallery', authMiddleware, async (req, res) => {
     try {
         const entries = await loadGallery()
-        logInfo('gallery', `?? ${entries.length} ?????`)
+        logInfo('图库', `读取图库成功，共 ${entries.length} 条`, null, req.requestId)
         res.json({ entries })
     } catch (error) {
-        logError('gallery', '??????', error)
+        logError('图库', '读取图库失败', error, req.requestId)
         res.status(500).json({ message: '无法读取图库' })
     }
 })
@@ -526,13 +543,30 @@ app.post('/api/generate', authMiddleware, async (req, res) => {
     }
 
     try {
+        const requestId = req.requestId
         const config = await loadConfig()
         const apiConfig = (config.apiConfigs || []).find(item => item.id === configId)
         if (!apiConfig) {
             return res.status(404).json({ message: '找不到对应的 API 配置' })
         }
 
-        logInfo('generate', `????????? ${apiConfig.id}`)
+        logInfo(
+            '生成',
+            '开始调用上游模型',
+            {
+                apiConfigId: apiConfig.id,
+                apiConfigLabel: apiConfig.label,
+                model: payload.model || apiConfig.model,
+                promptLength: typeof payload.prompt === 'string' ? payload.prompt.length : 0,
+                imagesCount: Array.isArray(payload.images) ? payload.images.length : 0,
+                aspectRatio: payload.aspectRatio || '',
+                imageSize: payload.imageSize || '',
+                enableGoogleSearch: Boolean(payload.enableGoogleSearch)
+            },
+            requestId
+        )
+
+        const upstreamStart = Date.now()
         const result = await generateImage({
             apiConfig,
             prompt: payload.prompt,
@@ -542,7 +576,14 @@ app.post('/api/generate', authMiddleware, async (req, res) => {
             imageSize: payload.imageSize,
             enableGoogleSearch: payload.enableGoogleSearch
         })
+        logInfo(
+            '生成',
+            `上游返回完成，耗时 ${Date.now() - upstreamStart}ms`,
+            { candidates: Array.isArray(result.imageCandidates) ? result.imageCandidates.length : 0 },
+            requestId
+        )
 
+        const persistStart = Date.now()
         const { entry: savedEntry, dataUrl } = await persistGalleryEntry({
             prompt: payload.prompt,
             responseText: result.textResponse,
@@ -553,9 +594,14 @@ app.post('/api/generate', authMiddleware, async (req, res) => {
             modelId: result.modelUsed,
             aspectRatio: result.aspectRatioUsed,
             imageSize: result.imageSizeUsed
-        })
+        }, requestId)
+        logInfo(
+            '生成',
+            `保存入库完成，耗时 ${Date.now() - persistStart}ms`,
+            { fileName: savedEntry.fileName, imagePath: savedEntry.imagePath, thumbnailPath: savedEntry.thumbnailPath },
+            requestId
+        )
 
-        logInfo('generate', `????????? ${savedEntry.id}`)
         res.json({
             imageUrl: savedEntry.imagePath,
             imageData: dataUrl,
@@ -563,7 +609,7 @@ app.post('/api/generate', authMiddleware, async (req, res) => {
             galleryEntry: savedEntry
         })
     } catch (error) {
-        logError('generate', '??????', error)
+        logError('生成', '生成失败', error, req.requestId)
         if (isTransientNetworkError(error)) {
             return res.status(502).json({ message: '上游连接异常/超时（可能被中转断开），请重试' })
         }
@@ -573,7 +619,7 @@ app.post('/api/generate', authMiddleware, async (req, res) => {
 
 async function fetchModels(apiConfig) {
     const endpoint = resolveModelsEndpoint(apiConfig.endpoint)
-    logInfo('models', `? ${apiConfig.id} ??????`, { endpoint })
+    logInfo('模型', `获取模型列表：${apiConfig.id}`, { endpoint })
     const response = await fetchWithRetry(
         endpoint,
         {
@@ -587,16 +633,16 @@ async function fetchModels(apiConfig) {
 
     if (!response.ok) {
         const text = await response.text()
-        throw new Error(`?????? ${response.status}: ${text}`)
+        throw new Error(`获取模型列表失败 ${response.status}: ${text}`)
     }
 
     const data = await response.json()
     const list = Array.isArray(data.data) ? data.data : Array.isArray(data.models) ? data.models : null
     if (!list) {
-        throw new Error('??????')
+        throw new Error('模型列表返回格式不符合预期')
     }
 
-    logInfo('models', `?? ${list.length} ???`, { endpoint })
+    logInfo('模型', `模型列表获取成功，共 ${list.length} 条`, { endpoint })
     return list
 }
 
@@ -943,9 +989,9 @@ function filterTextResponse(text) {
     return lines.join('\n')
 }
 
-async function persistGalleryEntry({ prompt, responseText, imageSource, imageCandidates, configLabel, configId, modelId, aspectRatio, imageSize }) {
+async function persistGalleryEntry({ prompt, responseText, imageSource, imageCandidates, configLabel, configId, modelId, aspectRatio, imageSize }, requestId) {
     const candidates = Array.isArray(imageCandidates) && imageCandidates.length ? imageCandidates : [imageSource].filter(Boolean)
-    const { fileName, imagePath, thumbnailPath, dataUrl } = await saveImagesToGallery(candidates)
+    const { fileName, imagePath, thumbnailPath, dataUrl } = await saveImagesToGallery(candidates, requestId)
     const entries = await loadGallery()
     const entry = {
         id: uuid(),
@@ -963,17 +1009,17 @@ async function persistGalleryEntry({ prompt, responseText, imageSource, imageCan
     }
     entries.unshift(entry)
     await saveGallery(entries)
-    logInfo('gallery', `??????? ${entry.id}`)
+    logInfo('图库', `已写入 gallery.json，记录 ${entry.id}`, { fileName, thumbnailPath }, requestId)
     return { entry, dataUrl }
 }
 
-async function saveImagesToGallery(imageSources) {
+async function saveImagesToGallery(imageSources, requestId) {
     const downloads = []
     for (const source of imageSources) {
         try {
             downloads.push(await downloadImage(source))
         } catch (error) {
-            logError('gallery', '下载候选图片失败，将跳过该候选', error)
+            logError('图库', '下载候选图片失败，将跳过该候选', error, requestId)
         }
     }
 
@@ -984,6 +1030,12 @@ async function saveImagesToGallery(imageSources) {
     downloads.sort((a, b) => b.byteLength - a.byteLength)
     const primary = downloads[0]
     const smallest = downloads[downloads.length - 1]
+    logInfo(
+        '图库',
+        `候选图片已下载 ${downloads.length} 张，将选择最大作为主图`,
+        { sizes: downloads.map(item => item.byteLength) },
+        requestId
+    )
 
     const extension = primary.extension || 'png'
     const fileName = `${Date.now()}-${uuid()}.${extension}`
@@ -1000,12 +1052,18 @@ async function saveImagesToGallery(imageSources) {
                 .resize(400, 400, { fit: 'cover', position: 'center' })
                 .toFile(thumbnailFsPath)
         } catch (error) {
-            logError('gallery', '写入候选缩略图失败，将回退为本地生成', error)
-            await generateThumbnailFromPrimary(primary.buffer, thumbnailFsPath)
+            logError('图库', '写入候选缩略图失败，将回退为本地生成', error, requestId)
+            await generateThumbnailFromPrimary(primary.buffer, thumbnailFsPath, requestId)
         }
     } else {
-        await generateThumbnailFromPrimary(primary.buffer, thumbnailFsPath)
+        await generateThumbnailFromPrimary(primary.buffer, thumbnailFsPath, requestId)
     }
+    logInfo(
+        '图库',
+        '图片已落盘',
+        { imagePath: `/gallery/${fileName}`, thumbnailPath: `/gallery/thumbnails/${thumbnailFileName}` },
+        requestId
+    )
 
     const dataUrl = `data:image/${extension};base64,${primary.buffer.toString('base64')}`
     return {
@@ -1043,13 +1101,13 @@ async function downloadImage(imageSource) {
     return { buffer, extension, byteLength: buffer.length }
 }
 
-async function generateThumbnailFromPrimary(buffer, thumbnailPath) {
+async function generateThumbnailFromPrimary(buffer, thumbnailPath, requestId) {
     try {
         await sharp(buffer)
             .resize(400, 400, { fit: 'cover', position: 'center' })
             .toFile(thumbnailPath)
     } catch (error) {
-        logError('gallery', '生成缩略图失败', error)
+        logError('图库', '生成缩略图失败，将回退为直接写入原图', error, requestId)
         await fs.promises.writeFile(thumbnailPath, buffer).catch(() => {})
     }
 }
@@ -1060,7 +1118,7 @@ app.delete('/api/gallery/:id', authMiddleware, async (req, res) => {
         const entries = await loadGallery()
         const index = entries.findIndex(entry => entry.id === req.params.id)
         if (index === -1) {
-            return res.status(404).json({ message: '?????????' })
+            return res.status(404).json({ message: '图库记录不存在' })
         }
         const removed = entries.splice(index, 1)[0]
         await saveGallery(entries)
@@ -1074,11 +1132,11 @@ app.delete('/api/gallery/:id', authMiddleware, async (req, res) => {
                 await fs.promises.unlink(thumbnailPath).catch(() => null)
             }
         }
-        logInfo('gallery', `?????? ${removed.id}`)
+        logInfo('图库', `已删除图库记录 ${removed.id}`, { fileName: removed.fileName }, req.requestId)
         res.json({ entry: removed })
     } catch (error) {
-        logError('gallery', '?????????', error)
-        res.status(500).json({ message: '???????????' })
+        logError('图库', '删除图库记录失败', error, req.requestId)
+        res.status(500).json({ message: '删除图库记录失败' })
     }
 })
 
