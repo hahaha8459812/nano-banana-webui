@@ -24,6 +24,63 @@ const PORT = process.env.PORT || 51130
 
 const app = express()
 
+const DEFAULT_UPSTREAM_TIMEOUT_MS = Number(process.env.UPSTREAM_TIMEOUT_MS || 180_000)
+const DEFAULT_UPSTREAM_RETRIES = Number(process.env.UPSTREAM_RETRIES || 1)
+const DEFAULT_UPSTREAM_RETRY_DELAY_MS = Number(process.env.UPSTREAM_RETRY_DELAY_MS || 800)
+
+function isTransientNetworkError(error) {
+    if (!error) return false
+    const message = error instanceof Error ? error.message : String(error)
+    const cause = error instanceof Error ? error.cause : undefined
+    const causeCode = cause && typeof cause === 'object' ? cause.code : undefined
+    const code = error instanceof Error ? error.code : undefined
+    const anyCode = code || causeCode
+    if (anyCode && ['ECONNRESET', 'ETIMEDOUT', 'EAI_AGAIN', 'ENOTFOUND', 'ECONNREFUSED'].includes(anyCode)) return true
+    return /terminated|socket hang up|network timeout|timed out|ECONNRESET/i.test(message)
+}
+
+function isRetryableStatus(status) {
+    return [408, 425, 429, 500, 502, 503, 504].includes(status)
+}
+
+const delay = ms => new Promise(resolve => setTimeout(resolve, ms))
+
+async function fetchWithTimeout(url, options, timeoutMs) {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(new Error('upstream timeout')), timeoutMs)
+    try {
+        return await fetch(url, { ...options, signal: controller.signal })
+    } finally {
+        clearTimeout(timer)
+    }
+}
+
+async function fetchWithRetry(url, options, { timeoutMs, retries, retryDelayMs } = {}) {
+    const effectiveTimeout = Number.isFinite(timeoutMs) ? timeoutMs : DEFAULT_UPSTREAM_TIMEOUT_MS
+    const effectiveRetries = Number.isFinite(retries) ? retries : DEFAULT_UPSTREAM_RETRIES
+    const effectiveDelay = Number.isFinite(retryDelayMs) ? retryDelayMs : DEFAULT_UPSTREAM_RETRY_DELAY_MS
+
+    let lastError
+    for (let attempt = 0; attempt <= effectiveRetries; attempt++) {
+        try {
+            const response = await fetchWithTimeout(url, options, effectiveTimeout)
+            if (!response.ok && isRetryableStatus(response.status) && attempt < effectiveRetries) {
+                await delay(effectiveDelay * (attempt + 1))
+                continue
+            }
+            return response
+        } catch (error) {
+            lastError = error
+            const retryable = isTransientNetworkError(error)
+            if (!retryable || attempt >= effectiveRetries) {
+                throw error
+            }
+            await delay(effectiveDelay * (attempt + 1))
+        }
+    }
+    throw lastError || new Error('upstream request failed')
+}
+
 function logInfo(scope, message, extra) {
     const time = new Date().toISOString()
     if (extra) {
@@ -507,19 +564,26 @@ app.post('/api/generate', authMiddleware, async (req, res) => {
         })
     } catch (error) {
         logError('generate', '??????', error)
-        res.status(500).json({ message: error.message || '生成失败' })
+        if (isTransientNetworkError(error)) {
+            return res.status(502).json({ message: '上游连接异常/超时（可能被中转断开），请重试' })
+        }
+        res.status(500).json({ message: (error && error.message) || '生成失败' })
     }
 })
 
 async function fetchModels(apiConfig) {
     const endpoint = resolveModelsEndpoint(apiConfig.endpoint)
     logInfo('models', `? ${apiConfig.id} ??????`, { endpoint })
-    const response = await fetch(endpoint, {
-        headers: {
-            Authorization: `Bearer ${apiConfig.apiKey}`,
-            'Content-Type': 'application/json'
-        }
-    })
+    const response = await fetchWithRetry(
+        endpoint,
+        {
+            headers: {
+                Authorization: `Bearer ${apiConfig.apiKey}`,
+                'Content-Type': 'application/json'
+            }
+        },
+        { timeoutMs: 30_000, retries: 1, retryDelayMs: 500 }
+    )
 
     if (!response.ok) {
         const text = await response.text()
@@ -608,14 +672,18 @@ async function generateImage({ apiConfig, prompt, images, model, aspectRatio, im
         payload.tools = [{ google_search: {} }]
     }
 
-    const response = await fetch(apiConfig.endpoint, {
-        method: 'POST',
-        headers: {
-            Authorization: `Bearer ${apiConfig.apiKey}`,
-            'Content-Type': 'application/json'
+    const response = await fetchWithRetry(
+        apiConfig.endpoint,
+        {
+            method: 'POST',
+            headers: {
+                Authorization: `Bearer ${apiConfig.apiKey}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(payload)
         },
-        body: JSON.stringify(payload)
-    })
+        { timeoutMs: DEFAULT_UPSTREAM_TIMEOUT_MS, retries: DEFAULT_UPSTREAM_RETRIES, retryDelayMs: DEFAULT_UPSTREAM_RETRY_DELAY_MS }
+    )
 
     if (!response.ok) {
         const text = await response.text()
