@@ -490,6 +490,7 @@ app.post('/api/generate', authMiddleware, async (req, res) => {
             prompt: payload.prompt,
             responseText: result.textResponse,
             imageSource: result.imageUrl,
+            imageCandidates: result.imageCandidates,
             configLabel: apiConfig.label,
             configId: apiConfig.id,
             modelId: result.modelUsed,
@@ -627,10 +628,8 @@ async function generateImage({ apiConfig, prompt, images, model, aspectRatio, im
         throw new Error('API 返回内容为空')
     }
 
-    const imageUrl =
-        choice.images?.[0]?.image_url?.url ||
-        extractImageFromContent(choice.content) ||
-        extractImageFromContent(choice)
+    const imageCandidates = extractImagesFromChoice(choice)
+    const imageUrl = imageCandidates[0] || null
 
     if (!imageUrl) {
         const textResponse = extractTextResponse(choice.content)
@@ -641,11 +640,43 @@ async function generateImage({ apiConfig, prompt, images, model, aspectRatio, im
     const textResponse = filterTextResponse(textResponseRaw)
     return {
         imageUrl,
+        imageCandidates,
         textResponse,
         modelUsed: resolvedModel,
         aspectRatioUsed: aspectRatio,
         imageSizeUsed: imageSize
     }
+}
+
+function extractImagesFromChoice(choice) {
+    const candidates = []
+
+    if (!choice) return candidates
+
+    if (Array.isArray(choice.images)) {
+        for (const item of choice.images) {
+            const url = item?.image_url?.url
+            if (typeof url === 'string' && url.trim()) {
+                candidates.push(url.trim())
+            }
+        }
+    }
+
+    const fromContent = extractAllImagesFromContent(choice.content)
+    candidates.push(...fromContent)
+
+    // Some providers nest images elsewhere on the message
+    const fromChoice = extractAllImagesFromContent(choice)
+    candidates.push(...fromChoice)
+
+    // De-dup while keeping order
+    const seen = new Set()
+    return candidates.filter(item => {
+        if (!item) return false
+        if (seen.has(item)) return false
+        seen.add(item)
+        return true
+    })
 }
 
 function extractImageFromContent(content) {
@@ -713,6 +744,64 @@ function extractImageFromContent(content) {
     }
 
     return null
+}
+
+function extractAllImagesFromContent(content) {
+    if (!content) return []
+
+    if (typeof content === 'string') {
+        const found = extractImageFromString(content)
+        return found ? [found] : []
+    }
+
+    if (Array.isArray(content)) {
+        return content.flatMap(part => extractAllImagesFromContent(part))
+    }
+
+    if (typeof content === 'object') {
+        const hits = []
+
+        if (content.type === 'image_url' && content.image_url?.url) {
+            hits.push(content.image_url.url)
+        }
+        if (content.type === 'response_image_url' && typeof content.url === 'string') {
+            hits.push(content.url)
+        }
+        if (content.image_url?.url) {
+            hits.push(content.image_url.url)
+        }
+        if (typeof content.url === 'string' && isLikelyImageUrl(content.url)) {
+            hits.push(content.url)
+        }
+
+        if (content.inline_data?.data) {
+            const mime = content.inline_data.mimeType || 'image/png'
+            hits.push(toDataUrl(content.inline_data.data, mime))
+        }
+
+        const base64Fields = [content.base64, content.b64_json, content.image_base64, content.data]
+        for (const candidate of base64Fields) {
+            if (typeof candidate === 'string' && candidate.trim()) {
+                hits.push(toDataUrl(candidate.trim(), content.mimeType || 'image/png'))
+            }
+        }
+
+        if (typeof content.text === 'string') {
+            const fromText = extractImageFromString(content.text)
+            if (fromText) hits.push(fromText)
+        }
+
+        if (content.parts) {
+            hits.push(...extractAllImagesFromContent(content.parts))
+        }
+        if (content.content) {
+            hits.push(...extractAllImagesFromContent(content.content))
+        }
+
+        return hits.filter(Boolean)
+    }
+
+    return []
 }
 
 function extractImageFromString(value) {
@@ -786,8 +875,9 @@ function filterTextResponse(text) {
     return lines.join('\n')
 }
 
-async function persistGalleryEntry({ prompt, responseText, imageSource, configLabel, configId, modelId, aspectRatio, imageSize }) {
-    const { fileName, imagePath, thumbnailPath, dataUrl } = await saveImageToGallery(imageSource)
+async function persistGalleryEntry({ prompt, responseText, imageSource, imageCandidates, configLabel, configId, modelId, aspectRatio, imageSize }) {
+    const candidates = Array.isArray(imageCandidates) && imageCandidates.length ? imageCandidates : [imageSource].filter(Boolean)
+    const { fileName, imagePath, thumbnailPath, dataUrl } = await saveImagesToGallery(candidates)
     const entries = await loadGallery()
     const entry = {
         id: uuid(),
@@ -809,7 +899,56 @@ async function persistGalleryEntry({ prompt, responseText, imageSource, configLa
     return { entry, dataUrl }
 }
 
-async function saveImageToGallery(imageSource) {
+async function saveImagesToGallery(imageSources) {
+    const downloads = []
+    for (const source of imageSources) {
+        try {
+            downloads.push(await downloadImage(source))
+        } catch (error) {
+            logError('gallery', '下载候选图片失败，将跳过该候选', error)
+        }
+    }
+
+    if (!downloads.length) {
+        throw new Error('无法下载生成的图片')
+    }
+
+    downloads.sort((a, b) => b.byteLength - a.byteLength)
+    const primary = downloads[0]
+    const smallest = downloads[downloads.length - 1]
+
+    const extension = primary.extension || 'png'
+    const fileName = `${Date.now()}-${uuid()}.${extension}`
+    const filePath = path.join(GALLERY_DIR, fileName)
+    await fs.promises.writeFile(filePath, primary.buffer)
+
+    const thumbnailFileName = `thumb-${fileName}`
+    const thumbnailFsPath = path.join(THUMBNAILS_DIR, thumbnailFileName)
+
+    const hasDistinctSmall = downloads.length > 1 && smallest.byteLength < primary.byteLength * 0.8
+    if (hasDistinctSmall) {
+        try {
+            await sharp(smallest.buffer)
+                .resize(400, 400, { fit: 'cover', position: 'center' })
+                .toFile(thumbnailFsPath)
+        } catch (error) {
+            logError('gallery', '写入候选缩略图失败，将回退为本地生成', error)
+            await generateThumbnailFromPrimary(primary.buffer, thumbnailFsPath)
+        }
+    } else {
+        await generateThumbnailFromPrimary(primary.buffer, thumbnailFsPath)
+    }
+
+    const dataUrl = `data:image/${extension};base64,${primary.buffer.toString('base64')}`
+    return {
+        fileName,
+        imagePath: `/gallery/${fileName}`,
+        thumbnailPath: `/gallery/thumbnails/${thumbnailFileName}`,
+        dataUrl
+    }
+}
+
+async function downloadImage(imageSource) {
     let buffer
     let extension = 'png'
 
@@ -833,32 +972,17 @@ async function saveImageToGallery(imageSource) {
         buffer = Buffer.from(await response.arrayBuffer())
     }
 
-    const fileName = `${Date.now()}-${uuid()}.${extension}`
-    const filePath = path.join(GALLERY_DIR, fileName)
-    await fs.promises.writeFile(filePath, buffer)
+    return { buffer, extension, byteLength: buffer.length }
+}
 
-    // Generate thumbnail
-    const thumbnailFileName = `thumb-${fileName}`
-    const thumbnailPath = path.join(THUMBNAILS_DIR, thumbnailFileName)
+async function generateThumbnailFromPrimary(buffer, thumbnailPath) {
     try {
         await sharp(buffer)
-            .resize(400, 400, {
-                fit: 'cover',
-                position: 'center'
-            })
+            .resize(400, 400, { fit: 'cover', position: 'center' })
             .toFile(thumbnailPath)
     } catch (error) {
         logError('gallery', '生成缩略图失败', error)
-        // Fallback to original image if thumbnail generation fails
-        await fs.promises.copyFile(filePath, thumbnailPath).catch(() => {})
-    }
-
-    const dataUrl = `data:image/${extension};base64,${buffer.toString('base64')}`
-    return {
-        fileName,
-        imagePath: `/gallery/${fileName}`,
-        thumbnailPath: `/gallery/thumbnails/${thumbnailFileName}`,
-        dataUrl
+        await fs.promises.writeFile(thumbnailPath, buffer).catch(() => {})
     }
 }
 
