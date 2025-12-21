@@ -1,121 +1,108 @@
-# NanoBanana Web UI
+# IMAGE 工作室（NanoBanana Web UI）
 
-NanoBanana 是一款基于 **Vue 3 + TypeScript + TailwindCSS + Vite** 的多模态工作台，后端使用 **Express（Node.js）** 提供统一 API，负责安全地保存密钥、转发请求到 Gemini / OpenRouter，并将生成结果写入图库。
-
----
-
-## 🌟 核心特性
-
-- **安全的密钥管理**：用户只需要输入登录密码，真正的 API Key 永远保留在服务器。
-- **可视化 API 配置**：在前端即可新增 / 编辑 / 删除多套 endpoint，并设定默认配置。
-- **模板 + 图库闭环**：提示词模板可以在线维护；生成结果会记录到图库，可查看详情、下载原图、删除记录。
-- **Gemini / OpenRouter 特性**：支持 Gemini 3 Pro Image 的宽高比、分辨率以及 Google Search 等扩展参数。
-- **部署灵活**：可在本地运行，也支持 Docker Compose；前端可以通过 `VITE_API_BASE_URL` 指向任意后端。
+基于 **Vue 3 + TypeScript + TailwindCSS + Vite** 的多模态前端，配合 **Express（Node.js）** 后端统一托管。后端负责认证、API 配置管理、代发模型请求（OpenRouter / Gemini 等）、结果持久化到图库，并通过 `/webui` 静态提供前端。
 
 ---
 
-## 📦 目录概览
+## ✨ 特性
+- **一站式托管**：同一端口 `51130` 同时提供前端 `/webui` 与 API `/api/*`。
+- **安全的密钥管理**：只输入工作密码；API Key 留在后端配置，前端不会暴露。
+- **模型配置面板**：前端新增/编辑/删除/设默认，支持获取模型列表。
+- **模板+图库闭环**：提示词模板在线维护；生成结果落地磁盘并写入 `gallery.json`，含主图/缩略图。
+- **Gemini 3 Pro Image 支持**：宽高比、分辨率、Google Search 等参数。
+- **稳健调用**：上游请求带超时+重试，断线时返回 502 友好提示；生成时多图候选自动选择最大分辨率，缺小图自动生成缩略图。
 
+---
+
+## 🗂 目录
 ```
 .
-├── server/                    # Node.js 后端
-│   ├── index.js               # Express 入口
-│   ├── config/app.config.json # 运行时配置（复制 example 后修改）
+├── server/                    # Node 后端
+│   ├── index.js               # Express 入口，托管 /api 与 /webui
+│   ├── config/app.config.json # 运行配置（复制 example 后修改）
 │   ├── data/gallery.json      # 图库索引（自动生成）
-│   └── gallery/               # 生成的图片（自动生成）
+│   └── gallery/               # 生成的图片及缩略图（自动生成）
 ├── src/                       # Vue 前端
-│   ├── components/            # API 配置卡片、图库等组件
-│   ├── services/backend.ts    # 调用后端的封装
+│   ├── components/            # UI 组件
+│   ├── services/backend.ts    # 后端调用封装
 │   └── App.vue
-├── docker-compose.yml
-├── Dockerfile.frontend
-├── Dockerfile.server
+├── docker-compose.yml         # 单容器（后端+前端静态）部署
+├── Dockerfile.server          # 多阶段：先构建前端，再打包后端
 ├── CONFIG.md                  # 配置字段说明
 └── README.md
 ```
 
 ---
 
-## ⚙️ 环境要求
-
-- Node.js ≥ 18、npm ≥ 9（本地开发需要）
-- Docker + Docker Compose v2（推荐用于部署）
-
----
-
-## 🔐 快速配置
-
-1. 复制示例文件
-   ```bash
-   cp server/config/app.config.example.json server/config/app.config.json
-   ```
-2. 编辑 `app.config.json`：
-   - `auth`：配置登录密码（明文或者 bcrypt hash）和 `jwtSecret`
-   - `apiConfigs`：至少一条 endpoint（包含 `id`、`endpoint`、`model`、`apiKey` 等）
-   - `templates`：可选，预置提示词
-3. 启动服务器后，会自动在 `server/gallery/`、`server/data/` 生成图库相关文件。
-
-详细字段可参考 [CONFIG.md](CONFIG.md)。
+## ⚙️ 前置
+- Node.js ≥ 18（本地开发） / npm ≥ 9
+- Docker + Docker Compose v2（推荐部署）
 
 ---
 
-## 🧑‍💻 本地开发
-
-```bash
-# 安装前端依赖
-npm install
-
-# 运行后端（另开终端）
-cd server
-npm install
-npm run start
-
-# 回到根目录，运行前端
-cd ..
-npm run dev
-```
-
-- 前端默认地址：`http://localhost:5173`
-- 后端默认地址：`http://localhost:51130`
-- 需要连接远程后端时，在根目录 `.env` 中设置 `VITE_API_BASE_URL=http://your-server:51130`
-
----
-
-## 🐳 Docker Compose
-
+## 🚀 部署（Docker Compose，单容器）
 ```bash
 git clone https://github.com/hahaha8459812/nano-banana-webui.git
 cd nano-banana-webui
 cp server/config/app.config.example.json server/config/app.config.json
-# 修改配置后
+# 编辑 app.config.json：设置登录密码/jwtSecret，填好 apiConfigs/apiKey
+
 docker compose up -d --build
 ```
+- 端口：`51130`（同时提供 `/api/*` 与 `/webui`）
+- 持久化：`./server/gallery`、`./server/data`、`./server/config/app.config.json` 挂载到容器内
+- 访问：浏览器打开 `http://<服务器IP>:51130/webui`
 
-- `frontend` 映射 `51131:80`
-- `backend` 映射 `51130:51130`
-- 图库文件存储在 `gallery-data`、`gallery-meta` 卷中
-- 浏览器访问 `http://服务器IP:51131`，在登录界面填入后端地址（如 `http://服务器IP:51130`）并保存，再输入密码使用
-
----
-
-## 🧑‍🎨 使用流程
-
-1. **登录**：输入密码 + 后端 API 地址（浏览器会记住）
-2. **API 配置卡片**：展开折叠面板后，可创建/编辑/删除配置、设置默认项、刷新模型列表
-3. **工作区**：选择模板或自定义提示词，上传参考图，设置宽高比 / Gemini 3 Pro 配置，触发纯提示词或图文生图
-4. **图库**：分页展示（桌面 4×3，移动 1×6），卡片包含时间戳与来源；点击进入详情可查看原图、模型信息、分辨率，并支持下载或删除
+容器名：`image-studio`（compose 已指定）。
 
 ---
 
-## 🔒 小贴士
+## 🧑‍💻 本地开发
+```bash
+# 前后端依赖
+npm install
+cd server && npm install && cd ..
 
-- `server/config/app.config.json` 含有敏感信息，别提交到 Git，可通过 CI/CD 或密钥管理系统分发
-- `server/gallery`、`server/data` 建议在生产环境挂载到持久化磁盘
-- 面向公网时，可在反向代理层增加 HTTPS、Basic Auth、IP 白名单等额外保护
-- 后端结构简单，如需队列、Webhook、更多接口，可在 `server/index.js` 基础上扩展
+# 启动后端
+cd server && npm run start
+# 启动前端（根目录）
+cd .. && npm run dev
+```
+- 前端：`http://localhost:5173`（开发）
+- 后端：`http://localhost:51130`
+- 生产构建：`npm run build`（输出 `dist/`，由后端 `/webui` 托管）
 
 ---
 
-## 📄 License
+## 🔐 配置要点（server/config/app.config.json）
+- `auth.password` 或 `auth.passwordHash`：登录密码（明文或 bcrypt）
+- `auth.jwtSecret`：JWT 密钥
+- `apiConfigs`：至少一条，包含 `id/endpoint/model/apiKey`（可多套并设默认）
+- `templates`：预置提示词（可空，前端可增删改）
 
+详见 `CONFIG.md`。
+
+---
+
+## 🧭 使用流程
+1) **登录**：输入密码；后端地址默认为当前站点，可一键“使用当前地址”。
+2) **API 配置**：在面板中新增/编辑/删除/设默认，支持拉取模型列表。
+3) **工作区**：分为文生图 / 图文生图两个模式；可设置宽高比、Gemini 3 Pro 参数，使用模板或自定义提示词、上传参考图。
+4) **生成**：调用 `/api/generate`，结果自动落库；主图选最大分辨率，缩略图优先用小图，否则自动生成。
+5) **图库**：分页查看、详情、下载、删除，缩略图加速列表加载。
+
+---
+
+## 🛡️ 运维提示
+- 上游超时/重试：可通过环境变量调整  
+  - `UPSTREAM_TIMEOUT_MS`（默认 180000）  
+  - `UPSTREAM_RETRIES`（默认 1）  
+  - `UPSTREAM_RETRY_DELAY_MS`（默认 800）  
+- 反向代理超时需大于后端超时（如 nginx `proxy_read_timeout` ≥ 180s）。
+- `server/gallery`、`server/data` 建议挂载持久化磁盘。
+- `app.config.json` 含敏感信息，勿提交；可用 CI/CD/密管分发。
+
+---
+
+## 🤝 License
 MIT License © Nano Banana Contributors
