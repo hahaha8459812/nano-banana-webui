@@ -5,7 +5,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.server
-    container_name: nano-banana-backend
+    container_name: image-studio
     networks:
       - nano-banana-net
     ports:
