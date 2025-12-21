@@ -584,7 +584,8 @@ app.post('/api/generate', authMiddleware, async (req, res) => {
         )
 
         const persistStart = Date.now()
-        const { entry: savedEntry, dataUrl } = await persistGalleryEntry({
+        const includeImageData = Boolean(payload.includeImageData) || process.env.RETURN_IMAGE_DATA === '1'
+        const { entry: savedEntry, imageData } = await persistGalleryEntry({
             prompt: payload.prompt,
             responseText: result.textResponse,
             imageSource: result.imageUrl,
@@ -594,7 +595,7 @@ app.post('/api/generate', authMiddleware, async (req, res) => {
             modelId: result.modelUsed,
             aspectRatio: result.aspectRatioUsed,
             imageSize: result.imageSizeUsed
-        }, requestId)
+        }, requestId, { includeImageData })
         logInfo(
             '生成',
             `保存入库完成，耗时 ${Date.now() - persistStart}ms`,
@@ -604,7 +605,7 @@ app.post('/api/generate', authMiddleware, async (req, res) => {
 
         res.json({
             imageUrl: savedEntry.imagePath,
-            imageData: dataUrl,
+            imageData: imageData || undefined,
             responseText: savedEntry.responseText,
             galleryEntry: savedEntry
         })
@@ -989,9 +990,13 @@ function filterTextResponse(text) {
     return lines.join('\n')
 }
 
-async function persistGalleryEntry({ prompt, responseText, imageSource, imageCandidates, configLabel, configId, modelId, aspectRatio, imageSize }, requestId) {
+async function persistGalleryEntry(
+    { prompt, responseText, imageSource, imageCandidates, configLabel, configId, modelId, aspectRatio, imageSize },
+    requestId,
+    { includeImageData } = { includeImageData: false }
+) {
     const candidates = Array.isArray(imageCandidates) && imageCandidates.length ? imageCandidates : [imageSource].filter(Boolean)
-    const { fileName, imagePath, thumbnailPath, dataUrl } = await saveImagesToGallery(candidates, requestId)
+    const { fileName, imagePath, thumbnailPath, imageData } = await saveImagesToGallery(candidates, requestId, { includeImageData })
     const entries = await loadGallery()
     const entry = {
         id: uuid(),
@@ -1010,10 +1015,10 @@ async function persistGalleryEntry({ prompt, responseText, imageSource, imageCan
     entries.unshift(entry)
     await saveGallery(entries)
     logInfo('图库', `已写入 gallery.json，记录 ${entry.id}`, { fileName, thumbnailPath }, requestId)
-    return { entry, dataUrl }
+    return { entry, imageData }
 }
 
-async function saveImagesToGallery(imageSources, requestId) {
+async function saveImagesToGallery(imageSources, requestId, { includeImageData } = { includeImageData: false }) {
     const downloads = []
     for (const source of imageSources) {
         try {
@@ -1065,12 +1070,11 @@ async function saveImagesToGallery(imageSources, requestId) {
         requestId
     )
 
-    const dataUrl = `data:image/${extension};base64,${primary.buffer.toString('base64')}`
     return {
         fileName,
         imagePath: `/gallery/${fileName}`,
         thumbnailPath: `/gallery/thumbnails/${thumbnailFileName}`,
-        dataUrl
+        imageData: includeImageData ? `data:image/${extension};base64,${primary.buffer.toString('base64')}` : null
     }
 }
 
