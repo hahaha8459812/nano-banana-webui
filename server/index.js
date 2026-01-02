@@ -424,6 +424,21 @@ async function runTask(taskId) {
         }
 
         const upstreamStart = Date.now()
+        logInfo(
+            '生成',
+            '开始调用上游模型',
+            {
+                apiConfigId: apiConfig.id,
+                apiConfigLabel: apiConfig.label,
+                model: task.rawPayload.model || apiConfig.model,
+                promptLength: task.payload?.promptLength || 0,
+                imagesCount: task.payload?.imagesCount || 0,
+                aspectRatio: task.rawPayload.aspectRatio || '',
+                imageSize: task.rawPayload.imageSize || '',
+                enableGoogleSearch: Boolean(task.rawPayload.enableGoogleSearch)
+            },
+            requestId
+        )
         const result = await generateImage(
             {
                 apiConfig,
@@ -443,6 +458,16 @@ async function runTask(taskId) {
         task.candidates = Array.isArray(result.imageCandidates) ? result.imageCandidates.length : 0
         schedulePersistTasks()
         broadcastTaskEvent(taskId, 'status', publicTaskView(task))
+        logInfo(
+            '生成',
+            '上游返回完成',
+            {
+                apiConfigId: apiConfig.id,
+                durationMs: task.upstreamMs,
+                candidates: task.candidates
+            },
+            requestId
+        )
 
         const { entry: savedEntry } = await persistGalleryEntry(
             {
@@ -817,6 +842,16 @@ app.post('/api/generate/task', authMiddleware, async (req, res) => {
         return res.status(400).json({ message: '必须指定 API 配置' })
     }
     try {
+        const summary = {
+            configId: payload.configId || '',
+            model: payload.model || '',
+            promptLength: typeof payload.prompt === 'string' ? payload.prompt.length : 0,
+            imagesCount: Array.isArray(payload.images) ? payload.images.length : 0,
+            aspectRatio: payload.aspectRatio || '',
+            imageSize: payload.imageSize || '',
+            enableGoogleSearch: Boolean(payload.enableGoogleSearch)
+        }
+        logInfo('生成', '收到生成任务请求', summary, req.requestId)
         const task = createTaskState({ requestId: req.requestId, token: '', payload })
         enqueueTask(task)
         logInfo('任务', '已创建生成任务', { taskId: task.id, configId: payload.configId }, req.requestId)
