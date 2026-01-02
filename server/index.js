@@ -437,7 +437,7 @@ async function runTask(taskId) {
                 imageSize: task.rawPayload.imageSize || '',
                 enableGoogleSearch: Boolean(task.rawPayload.enableGoogleSearch)
             },
-            requestId
+            task.requestId
         )
         const result = await generateImage(
             {
@@ -466,7 +466,7 @@ async function runTask(taskId) {
                 durationMs: task.upstreamMs,
                 candidates: task.candidates
             },
-            requestId
+            task.requestId
         )
 
         const { entry: savedEntry } = await persistGalleryEntry(
