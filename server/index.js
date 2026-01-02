@@ -16,6 +16,7 @@ const CONFIG_PATH = path.join(__dirname, 'config', 'app.config.json')
 const CONFIG_EXAMPLE_PATH = path.join(__dirname, 'config', 'app.config.example.json')
 const DATA_DIR = path.join(__dirname, 'data')
 const GALLERY_DATA_PATH = path.join(DATA_DIR, 'gallery.json')
+const TASKS_DATA_PATH = path.join(DATA_DIR, 'tasks.json')
 const GALLERY_DIR = path.join(__dirname, 'gallery')
 const DIST_DIR = path.join(__dirname, '..', 'dist')
 const THUMBNAILS_DIR = path.join(GALLERY_DIR, 'thumbnails')
@@ -27,6 +28,10 @@ const app = express()
 const DEFAULT_UPSTREAM_TIMEOUT_MS = Number(process.env.UPSTREAM_TIMEOUT_MS || 180_000)
 const DEFAULT_UPSTREAM_RETRIES = Number(process.env.UPSTREAM_RETRIES || 1)
 const DEFAULT_UPSTREAM_RETRY_DELAY_MS = Number(process.env.UPSTREAM_RETRY_DELAY_MS || 800)
+const MAX_CONCURRENT_TASKS = Number(process.env.MAX_CONCURRENT_TASKS || 1)
+const MAX_QUEUE_SIZE = Number(process.env.MAX_QUEUE_SIZE || 10)
+const TASK_TTL_MS = Number(process.env.TASK_TTL_MS || 24 * 60 * 60 * 1000)
+const SSE_HEARTBEAT_MS = Number(process.env.SSE_HEARTBEAT_MS || 15_000)
 
 function isTransientNetworkError(error) {
     if (!error) return false
@@ -49,7 +54,8 @@ async function fetchWithTimeout(url, options, timeoutMs) {
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(new Error('upstream timeout')), timeoutMs)
     try {
-        return await fetch(url, { ...options, signal: controller.signal })
+        const combinedSignal = options?.signal ? AbortSignal.any([options.signal, controller.signal]) : controller.signal
+        return await fetch(url, { ...options, signal: combinedSignal })
     } finally {
         clearTimeout(timer)
     }
@@ -131,6 +137,9 @@ if (fs.existsSync(DIST_DIR)) {
 
 ensureDirectories()
 ensureThumbnails()
+ensureTasksStore()
+loadTasksStore()
+startTaskCleanup()
 
 function ensureDirectories() {
     if (!fs.existsSync(path.dirname(CONFIG_PATH))) {
@@ -161,6 +170,17 @@ function ensureDirectories() {
     if (!fs.existsSync(GALLERY_DATA_PATH)) {
         fs.writeFileSync(GALLERY_DATA_PATH, JSON.stringify([]))
         logInfo('初始化', '已创建 data/gallery.json')
+    }
+}
+
+function ensureTasksStore() {
+    if (!fs.existsSync(TASKS_DATA_PATH)) {
+        try {
+            fs.writeFileSync(TASKS_DATA_PATH, JSON.stringify([]))
+            logInfo('初始化', '已创建 data/tasks.json')
+        } catch (error) {
+            logError('初始化', '创建 data/tasks.json 失败', error)
+        }
     }
 }
 
@@ -206,6 +226,272 @@ async function ensureThumbnails() {
         logInfo('初始化', '缩略图检查完成')
     } catch (error) {
         logError('初始化', '缩略图检查失败', error)
+    }
+}
+
+function ensureTasksStore() {
+    if (!fs.existsSync(TASKS_DATA_PATH)) {
+        try {
+            fs.writeFileSync(TASKS_DATA_PATH, JSON.stringify([]))
+            logInfo('初始化', '已创建 data/tasks.json')
+        } catch (error) {
+            logError('初始化', '创建 data/tasks.json 失败', error)
+        }
+    }
+}
+
+// ---- Generate task queue (single-instance) ----
+const tasks = new Map()
+const taskQueue = []
+const taskListeners = new Map()
+let runningTasks = 0
+let tasksPersistTimer = null
+
+function serializeTask(task) {
+    const { token, abortController, ...rest } = task
+    return rest
+}
+
+function schedulePersistTasks() {
+    if (tasksPersistTimer) return
+    tasksPersistTimer = setTimeout(() => {
+        tasksPersistTimer = null
+        persistTasksStore().catch(() => null)
+    }, 300)
+}
+
+async function persistTasksStore() {
+    try {
+        const list = Array.from(tasks.values()).map(serializeTask)
+        await fs.promises.writeFile(TASKS_DATA_PATH, JSON.stringify(list, null, 2))
+    } catch (error) {
+        logError('任务', '写入 tasks.json 失败', error)
+    }
+}
+
+function loadTasksStore() {
+    try {
+        if (!fs.existsSync(TASKS_DATA_PATH)) return
+        const raw = fs.readFileSync(TASKS_DATA_PATH, 'utf-8')
+        const list = JSON.parse(raw)
+        if (!Array.isArray(list)) return
+        for (const item of list) {
+            if (!item?.id) continue
+            const restored = { ...item, token: '', abortController: null, cancelRequested: false }
+            if (restored.status === 'running' || restored.status === 'queued') {
+                restored.status = 'failed'
+                restored.stage = 'failed'
+                restored.error = '服务重启导致任务中断，请重新生成'
+                restored.finishedAt = new Date().toISOString()
+            }
+            tasks.set(restored.id, restored)
+        }
+        if (tasks.size) {
+            logInfo('初始化', `已加载历史任务 ${tasks.size} 条`)
+        }
+    } catch (error) {
+        logError('初始化', '加载 tasks.json 失败', error)
+    }
+}
+
+function startTaskCleanup() {
+    setInterval(() => {
+        const now = Date.now()
+        let changed = false
+        for (const [id, task] of tasks.entries()) {
+            const createdAt = Date.parse(task.createdAt || '') || 0
+            if (createdAt && now - createdAt > TASK_TTL_MS) {
+                tasks.delete(id)
+                changed = true
+            }
+        }
+        if (changed) schedulePersistTasks()
+    }, 60_000)
+}
+
+function publicTaskView(task) {
+    if (!task) return null
+    const { token, abortController, ...rest } = task
+    return rest
+}
+
+function sseSend(res, event, data) {
+    res.write(`event: ${event}\n`)
+    res.write(`data: ${JSON.stringify(data)}\n\n`)
+}
+
+function sseComment(res, comment) {
+    res.write(`: ${comment}\n\n`)
+}
+
+function addTaskListener(taskId, res) {
+    if (!taskListeners.has(taskId)) {
+        taskListeners.set(taskId, new Set())
+    }
+    taskListeners.get(taskId).add(res)
+}
+
+function removeTaskListener(taskId, res) {
+    const set = taskListeners.get(taskId)
+    if (!set) return
+    set.delete(res)
+    if (set.size === 0) {
+        taskListeners.delete(taskId)
+    }
+}
+
+function broadcastTaskEvent(taskId, event, payload) {
+    const listeners = taskListeners.get(taskId)
+    if (!listeners) return
+    for (const res of listeners) {
+        try {
+            sseSend(res, event, payload)
+        } catch {
+            // ignore
+        }
+    }
+}
+
+function createTaskState({ requestId, token, payload }) {
+    const id = uuid()
+    return {
+        id,
+        requestId: requestId || '',
+        status: 'queued',
+        stage: 'queued',
+        createdAt: new Date().toISOString(),
+        startedAt: '',
+        finishedAt: '',
+        error: '',
+        cancelRequested: false,
+        token: token || '',
+        abortController: null,
+        rawPayload: payload,
+        payload: {
+            configId: payload.configId,
+            model: payload.model || '',
+            aspectRatio: payload.aspectRatio || '',
+            imageSize: payload.imageSize || '',
+            enableGoogleSearch: Boolean(payload.enableGoogleSearch),
+            promptLength: typeof payload.prompt === 'string' ? payload.prompt.length : 0,
+            imagesCount: Array.isArray(payload.images) ? payload.images.length : 0
+        },
+        result: null
+    }
+}
+
+function enqueueTask(task) {
+    if (taskQueue.length >= MAX_QUEUE_SIZE) {
+        throw new Error('任务队列已满，请稍后重试')
+    }
+    tasks.set(task.id, task)
+    taskQueue.push(task.id)
+    schedulePersistTasks()
+    drainQueue()
+}
+
+function drainQueue() {
+    while (runningTasks < MAX_CONCURRENT_TASKS && taskQueue.length) {
+        const nextId = taskQueue.shift()
+        const task = tasks.get(nextId)
+        if (!task || task.status !== 'queued') continue
+        runningTasks += 1
+        runTask(nextId)
+            .catch(() => null)
+            .finally(() => {
+                runningTasks -= 1
+                drainQueue()
+            })
+    }
+}
+
+async function runTask(taskId) {
+    const task = tasks.get(taskId)
+    if (!task) return
+
+    if (task.cancelRequested) {
+        task.status = 'canceled'
+        task.stage = 'canceled'
+        task.finishedAt = new Date().toISOString()
+        schedulePersistTasks()
+        broadcastTaskEvent(taskId, 'done', publicTaskView(task))
+        return
+    }
+
+    task.status = 'running'
+    task.stage = 'calling_upstream'
+    task.startedAt = new Date().toISOString()
+    schedulePersistTasks()
+    broadcastTaskEvent(taskId, 'status', publicTaskView(task))
+
+    const abortController = new AbortController()
+    task.abortController = abortController
+
+    try {
+        const config = await loadConfig()
+        const apiConfig = (config.apiConfigs || []).find(item => item.id === task.rawPayload.configId)
+        if (!apiConfig) {
+            throw new Error('找不到对应的 API 配置')
+        }
+
+        const upstreamStart = Date.now()
+        const result = await generateImage(
+            {
+                apiConfig,
+                prompt: task.rawPayload.prompt,
+                images: task.rawPayload.images || [],
+                model: task.rawPayload.model || apiConfig.model,
+                aspectRatio: task.rawPayload.aspectRatio,
+                imageSize: task.rawPayload.imageSize,
+                enableGoogleSearch: task.rawPayload.enableGoogleSearch
+            },
+            task.requestId,
+            abortController.signal
+        )
+
+        task.stage = 'saving'
+        task.upstreamMs = Date.now() - upstreamStart
+        task.candidates = Array.isArray(result.imageCandidates) ? result.imageCandidates.length : 0
+        schedulePersistTasks()
+        broadcastTaskEvent(taskId, 'status', publicTaskView(task))
+
+        const { entry: savedEntry } = await persistGalleryEntry(
+            {
+                prompt: task.rawPayload.prompt,
+                responseText: result.textResponse,
+                imageSource: result.imageUrl,
+                imageCandidates: result.imageCandidates,
+                configLabel: apiConfig.label,
+                configId: apiConfig.id,
+                modelId: result.modelUsed,
+                aspectRatio: result.aspectRatioUsed,
+                imageSize: result.imageSizeUsed
+            },
+            task.requestId,
+            { includeImageData: false }
+        )
+
+        task.status = 'done'
+        task.stage = 'done'
+        task.finishedAt = new Date().toISOString()
+        task.result = { galleryEntry: savedEntry }
+        schedulePersistTasks()
+        broadcastTaskEvent(taskId, 'done', publicTaskView(task))
+    } catch (error) {
+        if (task.cancelRequested) {
+            task.status = 'canceled'
+            task.stage = 'canceled'
+            task.error = '已取消'
+        } else {
+            task.status = 'failed'
+            task.stage = 'failed'
+            task.error = error instanceof Error ? error.message : String(error)
+        }
+        task.finishedAt = new Date().toISOString()
+        schedulePersistTasks()
+        broadcastTaskEvent(taskId, 'error', publicTaskView(task))
+    } finally {
+        task.abortController = null
     }
 }
 
@@ -567,15 +853,18 @@ app.post('/api/generate', authMiddleware, async (req, res) => {
         )
 
         const upstreamStart = Date.now()
-        const result = await generateImage({
-            apiConfig,
-            prompt: payload.prompt,
-            images: payload.images || [],
-            model: payload.model || apiConfig.model,
-            aspectRatio: payload.aspectRatio,
-            imageSize: payload.imageSize,
-            enableGoogleSearch: payload.enableGoogleSearch
-        })
+        const result = await generateImage(
+            {
+                apiConfig,
+                prompt: payload.prompt,
+                images: payload.images || [],
+                model: payload.model || apiConfig.model,
+                aspectRatio: payload.aspectRatio,
+                imageSize: payload.imageSize,
+                enableGoogleSearch: payload.enableGoogleSearch
+            },
+            requestId
+        )
         logInfo(
             '生成',
             `上游返回完成，耗时 ${Date.now() - upstreamStart}ms`,
@@ -616,6 +905,74 @@ app.post('/api/generate', authMiddleware, async (req, res) => {
         }
         res.status(500).json({ message: (error && error.message) || '生成失败' })
     }
+})
+
+// --- 异步任务接口 ---
+app.post('/api/generate/task', authMiddleware, async (req, res) => {
+    const payload = req.body || {}
+    if (!payload.configId) {
+        return res.status(400).json({ message: '必须指定 API 配置' })
+    }
+    try {
+        const task = createTaskState({ requestId: req.requestId, token: '', payload })
+        enqueueTask(task)
+        logInfo('任务', '已创建生成任务', { taskId: task.id, configId: payload.configId }, req.requestId)
+        res.status(202).json({ taskId: task.id, status: task.status })
+    } catch (error) {
+        logError('任务', '创建任务失败', error, req.requestId)
+        res.status(429).json({ message: error instanceof Error ? error.message : '任务队列繁忙，请稍后重试' })
+    }
+})
+
+app.get('/api/generate/task/:id', authMiddleware, (req, res) => {
+    const task = tasks.get(req.params.id)
+    if (!task) {
+        return res.status(404).json({ message: '任务不存在' })
+    }
+    res.json(publicTaskView(task))
+})
+
+app.get('/api/generate/task/:id/events', authMiddleware, (req, res) => {
+    const task = tasks.get(req.params.id)
+    if (!task) {
+        return res.status(404).end()
+    }
+
+    res.setHeader('Content-Type', 'text/event-stream')
+    res.setHeader('Cache-Control', 'no-cache')
+    res.setHeader('Connection', 'keep-alive')
+    res.flushHeaders?.()
+
+    const sendHeartbeat = () => sseComment(res, 'ping')
+    const heartbeatTimer = setInterval(sendHeartbeat, SSE_HEARTBEAT_MS)
+    addTaskListener(task.id, res)
+
+    // 先推送当前状态
+    sseSend(res, 'status', publicTaskView(task))
+
+    req.on('close', () => {
+        clearInterval(heartbeatTimer)
+        removeTaskListener(task.id, res)
+    })
+})
+
+app.delete('/api/generate/task/:id', authMiddleware, (req, res) => {
+    const task = tasks.get(req.params.id)
+    if (!task) {
+        return res.status(404).json({ message: '任务不存在' })
+    }
+    task.cancelRequested = true
+    if (task.abortController) {
+        task.abortController.abort()
+    }
+    task.status = 'canceled'
+    task.stage = 'canceled'
+    task.error = '已取消'
+    task.finishedAt = new Date().toISOString()
+    schedulePersistTasks()
+    broadcastTaskEvent(task.id, 'error', publicTaskView(task))
+    logInfo('任务', '已取消任务', { taskId: task.id }, req.requestId)
+    res.json(publicTaskView(task))
 })
 
 async function fetchModels(apiConfig) {
@@ -680,7 +1037,7 @@ function resolveModelsEndpoint(endpoint) {
     }
 }
 
-async function generateImage({ apiConfig, prompt, images, model, aspectRatio, imageSize, enableGoogleSearch }) {
+async function generateImage({ apiConfig, prompt, images, model, aspectRatio, imageSize, enableGoogleSearch }, requestId, signal) {
     if (!prompt && (!images || !images.length)) {
         throw new Error('缺少提示词或参考图像')
     }
@@ -727,7 +1084,8 @@ async function generateImage({ apiConfig, prompt, images, model, aspectRatio, im
                 Authorization: `Bearer ${apiConfig.apiKey}`,
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify(payload)
+            body: JSON.stringify(payload),
+            signal
         },
         { timeoutMs: DEFAULT_UPSTREAM_TIMEOUT_MS, retries: DEFAULT_UPSTREAM_RETRIES, retryDelayMs: DEFAULT_UPSTREAM_RETRY_DELAY_MS }
     )
