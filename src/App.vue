@@ -264,15 +264,16 @@ import GalleryView from './components/GalleryView.vue'
 import GalleryDetailModal from './components/GalleryDetailModal.vue'
 import {
     createApiConfig as createApiConfigRequest,
+    createGenerateTask,
     createTemplate,
     deleteApiConfig as deleteApiConfigRequest,
     deleteGalleryEntry as deleteGalleryEntryRequest,
     deleteTemplate as deleteTemplateRequest,
     fetchApiConfigs,
     fetchGallery,
+    fetchGenerateTask,
     fetchModels,
     fetchTemplates,
-    generateImage,
     login,
     setDefaultApiConfig as setDefaultApiConfigRequest,
     updateApiConfig as updateApiConfigRequest,
@@ -343,6 +344,8 @@ const textToImageResponse = ref<string | null>(null)
 const error = ref<string | null>(null)
 const textToImageError = ref<string | null>(null)
 const latestResultSource = ref<'text' | 'image' | null>(null)
+const activeTaskId = ref<string | null>(null)
+const activeTaskMode = ref<'text' | 'image' | null>(null)
 
 const selectedAspectRatio = ref('1:1')
 const gemini3ImageSize = ref('2K')
@@ -490,6 +493,91 @@ const displayError = computed(() => {
     if (latestResultSource.value === 'text') return textToImageError.value
     return error.value || textToImageError.value
 })
+
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
+
+const waitForTask = async (taskId: string, mode: 'text' | 'image') => {
+    if (!authToken.value) {
+        throw new Error('未登录')
+    }
+    const deadline = Date.now() + 5 * 60 * 1000 // 5 分钟超时
+    let lastStatus = ''
+
+    while (true) {
+        const task = await fetchGenerateTask(authToken.value, taskId)
+        lastStatus = task.status
+
+        if (task.status === 'done' && task.result?.galleryEntry) {
+            return task
+        }
+
+        if (task.status === 'failed') {
+            throw new Error(task.error || '生成失败')
+        }
+
+        if (task.status === 'canceled') {
+            throw new Error('任务已取消')
+        }
+
+        if (Date.now() > deadline) {
+            throw new Error(`生成超时，最后状态：${lastStatus}`)
+        }
+
+        await sleep(2000)
+    }
+}
+
+const runGenerateTask = async (payload: ReturnType<typeof buildGeneratePayload>, mode: 'text' | 'image') => {
+    if (!authToken.value) return
+
+    activeTaskId.value = null
+    activeTaskMode.value = mode
+
+    if (mode === 'text') {
+        isTextToImageLoading.value = true
+        textToImageError.value = null
+        textToImageResult.value = null
+    } else {
+        isLoading.value = true
+        error.value = null
+        result.value = null
+    }
+
+    latestResultSource.value = mode
+
+    try {
+        const { taskId } = await createGenerateTask(authToken.value, payload)
+        activeTaskId.value = taskId
+        const task = await waitForTask(taskId, mode)
+        const entry = normalizeGalleryEntry(task.result?.galleryEntry as GalleryEntry)
+        galleryEntries.value = [entry, ...galleryEntries.value]
+
+        if (mode === 'text') {
+            textToImageResult.value = entry.imagePath
+            textToImageResponse.value = entry.responseText || ''
+        } else {
+            result.value = entry.imagePath
+            resultResponseText.value = entry.responseText || ''
+        }
+    } catch (err) {
+        const message = err instanceof Error ? err.message : '生成失败'
+        if (mode === 'text') {
+            textToImageError.value = message
+            textToImageResult.value = null
+        } else {
+            error.value = message
+            result.value = null
+        }
+    } finally {
+        activeTaskId.value = null
+        activeTaskMode.value = null
+        if (mode === 'text') {
+            isTextToImageLoading.value = false
+        } else {
+            isLoading.value = false
+        }
+    }
+}
 
 const canGenerateTextImage = computed(
     () =>
@@ -723,45 +811,15 @@ const buildGeneratePayload = (prompt: string, images: string[]) => {
 
 const handleTextToImageGenerate = async () => {
     if (!canGenerateTextImage.value || !authToken.value) return
-    latestResultSource.value = 'text'
-    isTextToImageLoading.value = true
-    textToImageError.value = null
-    textToImageResult.value = null
-    try {
-        const request = buildGeneratePayload(textToImagePrompt.value, [])
-        const response = await generateImage(authToken.value, request)
-        const image = response.imageData || withServerBase(response.imageUrl)
-        textToImageResult.value = image
-        textToImageResponse.value = response.responseText || ''
-        galleryEntries.value = [normalizeGalleryEntry(response.galleryEntry), ...galleryEntries.value]
-    } catch (error) {
-        textToImageError.value = error instanceof Error ? error.message : '生成失败'
-        textToImageResult.value = null
-    } finally {
-        isTextToImageLoading.value = false
-    }
+    const request = buildGeneratePayload(textToImagePrompt.value, [])
+    await runGenerateTask(request, 'text')
 }
 
 const handleGenerate = async () => {
     if (!canGenerate.value || !authToken.value) return
-    latestResultSource.value = 'image'
-    isLoading.value = true
-    error.value = null
-    result.value = null
-    try {
-        const prompt = buildPrompt()
-        const request = buildGeneratePayload(prompt, selectedImages.value)
-        const response = await generateImage(authToken.value, request)
-        const image = response.imageData || withServerBase(response.imageUrl)
-        result.value = image
-        resultResponseText.value = response.responseText || ''
-        galleryEntries.value = [normalizeGalleryEntry(response.galleryEntry), ...galleryEntries.value]
-    } catch (err) {
-        error.value = err instanceof Error ? err.message : '生成失败'
-        result.value = null
-    } finally {
-        isLoading.value = false
-    }
+    const prompt = buildPrompt()
+    const request = buildGeneratePayload(prompt, selectedImages.value)
+    await runGenerateTask(request, 'image')
 }
 
 const handleDownloadResult = async () => {

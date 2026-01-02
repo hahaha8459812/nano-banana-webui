@@ -6,7 +6,7 @@ import type {
     CreateApiConfigPayload,
     GalleryEntry,
     GenerateRequest,
-    GenerateResponse,
+    GenerateTask,
     StyleTemplate,
     UpdateApiConfigPayload
 } from '../types'
@@ -117,8 +117,16 @@ export async function fetchModels(token: string, configId: string) {
     return data.models || []
 }
 
-export async function generateImage(token: string, payload: GenerateRequest) {
-    return request<GenerateResponse>('/api/generate', { method: 'POST', body: JSON.stringify(payload) }, token)
+export async function createGenerateTask(token: string, payload: GenerateRequest) {
+    return request<{ taskId: string; status: string }>('/api/generate/task', { method: 'POST', body: JSON.stringify(payload) }, token)
+}
+
+export async function fetchGenerateTask(token: string, id: string) {
+    return request<GenerateTask>(`/api/generate/task/${id}`, { method: 'GET' }, token)
+}
+
+export async function cancelGenerateTask(token: string, id: string) {
+    return request<GenerateTask>(`/api/generate/task/${id}`, { method: 'DELETE' }, token)
 }
 
 export async function fetchGallery(token: string) {

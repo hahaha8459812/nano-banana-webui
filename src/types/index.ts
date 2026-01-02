@@ -9,11 +9,32 @@ export interface GenerateRequest {
     includeImageData?: boolean
 }
 
-export interface GenerateResponse {
-    imageUrl: string
-    responseText?: string
-    imageData?: string
+export type GenerateTaskStatus = 'queued' | 'running' | 'saving' | 'done' | 'failed' | 'canceled'
+
+export interface GenerateTaskResult {
     galleryEntry: GalleryEntry
+}
+
+export interface GenerateTask {
+    id: string
+    status: GenerateTaskStatus
+    stage?: string
+    createdAt: string
+    startedAt?: string
+    finishedAt?: string
+    error?: string
+    upstreamMs?: number
+    candidates?: number
+    payload?: {
+        configId?: string
+        model?: string
+        aspectRatio?: string
+        imageSize?: string
+        enableGoogleSearch?: boolean
+        promptLength?: number
+        imagesCount?: number
+    }
+    result?: GenerateTaskResult | null
 }
 
 export interface ApiModel {

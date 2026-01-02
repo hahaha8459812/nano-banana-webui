@@ -1,6 +1,6 @@
 # IMAGE 工作室（NanoBanana Web UI）
 
-基于 **Vue 3 + TypeScript + TailwindCSS + Vite** 的多模态前端，配合 **Express（Node.js）** 后端统一托管。后端负责认证、API 配置管理、代发模型请求（OpenRouter / Gemini 等）、结果持久化到图库，并通过 `/webui` 静态提供前端。支持同步生成，也支持**异步任务 + SSE 推送**（防止长链路超时）。
+基于 **Vue 3 + TypeScript + TailwindCSS + Vite** 的多模态前端，配合 **Express（Node.js）** 后端统一托管。后端负责认证、API 配置管理、代发模型请求（OpenRouter / Gemini 等）、结果持久化到图库，并通过 `/webui` 静态提供前端。**生成已改为异步任务 + SSE/轮询**，防止长链路超时。
 
 ---
 
@@ -89,15 +89,16 @@ cd .. && npm run dev
 1) **登录**：输入密码；后端地址默认为当前站点，可一键“使用当前地址”。
 2) **API 配置**：在面板中新增/编辑/删除/设默认，支持拉取模型列表。
 3) **工作区**：分为文生图 / 图文生图两个模式；可设置宽高比、Gemini 3 Pro 参数，使用模板或自定义提示词、上传参考图。
-4) **生成**：调用 `/api/generate`，结果自动落库；主图选最大分辨率，缩略图优先用小图，否则自动生成。
+4) **生成**：调用 `/api/generate/task` 创建任务；后台生成并落库，主图选最大分辨率，缩略图优先用小图，否则自动生成。
 5) **图库**：分页查看、详情、下载、删除，缩略图加速列表加载。
 
-### 异步生成（可选）
+### 异步生成（默认）
 - 创建任务：`POST /api/generate/task`（参数与同步接口一致），立即返回 `taskId`。
 - 推送进度：`GET /api/generate/task/:id/events`（SSE），事件含 queued/running/saving/done/error，带心跳。
 - 查询状态：`GET /api/generate/task/:id`（SSE 断开时兜底）。
 - 取消任务：`DELETE /api/generate/task/:id`（尽力 abort，上游不保证立刻停）。
 - 环境变量：`MAX_CONCURRENT_TASKS`（默认 1）、`MAX_QUEUE_SIZE`（默认 10）、`TASK_TTL_MS`（默认 24h）、`SSE_HEARTBEAT_MS`。
+- 说明：同步 `/api/generate` 已移除，仅支持任务制异步调用。
 
 ---
 
