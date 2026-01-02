@@ -229,17 +229,6 @@ async function ensureThumbnails() {
     }
 }
 
-function ensureTasksStore() {
-    if (!fs.existsSync(TASKS_DATA_PATH)) {
-        try {
-            fs.writeFileSync(TASKS_DATA_PATH, JSON.stringify([]))
-            logInfo('初始化', '已创建 data/tasks.json')
-        } catch (error) {
-            logError('初始化', '创建 data/tasks.json 失败', error)
-        }
-    }
-}
-
 // ---- Generate task queue (single-instance) ----
 const tasks = new Map()
 const taskQueue = []
