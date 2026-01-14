@@ -4,6 +4,7 @@ export class LocalStorage {
     private static readonly SELECTED_CONFIG = 'nano-banana-config-id'
     private static readonly MODEL_SELECTIONS = 'nano-banana-model-selection'
     private static readonly API_BASE_URL = 'nano-banana-api-base-url'
+    private static readonly ACTIVE_TASK = 'nano-banana-active-task'
 
     static saveAuthToken(token: string): void {
         try {
@@ -96,6 +97,35 @@ export class LocalStorage {
             localStorage.removeItem(this.API_BASE_URL)
         } catch (error) {
             console.warn('无法清除后端地址:', error)
+        }
+    }
+
+    static saveActiveTask(taskId: string, mode: 'text' | 'image'): void {
+        try {
+            localStorage.setItem(this.ACTIVE_TASK, JSON.stringify({ taskId, mode, savedAt: Date.now() }))
+        } catch (error) {
+            console.warn('无法保存任务状态:', error)
+        }
+    }
+
+    static getActiveTask(): { taskId: string; mode: 'text' | 'image'; savedAt: number } | null {
+        try {
+            const raw = localStorage.getItem(this.ACTIVE_TASK)
+            if (!raw) return null
+            const parsed = JSON.parse(raw) as { taskId?: string; mode?: 'text' | 'image'; savedAt?: number }
+            if (!parsed?.taskId || (parsed.mode !== 'text' && parsed.mode !== 'image')) return null
+            return { taskId: parsed.taskId, mode: parsed.mode, savedAt: parsed.savedAt || 0 }
+        } catch (error) {
+            console.warn('无法读取任务状态:', error)
+            return null
+        }
+    }
+
+    static clearActiveTask(): void {
+        try {
+            localStorage.removeItem(this.ACTIVE_TASK)
+        } catch (error) {
+            console.warn('无法清除任务状态:', error)
         }
     }
 

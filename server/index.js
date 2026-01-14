@@ -138,8 +138,6 @@ if (fs.existsSync(DIST_DIR)) {
 ensureDirectories()
 ensureThumbnails()
 ensureTasksStore()
-loadTasksStore()
-startTaskCleanup()
 
 function ensureDirectories() {
     if (!fs.existsSync(path.dirname(CONFIG_PATH))) {
@@ -257,6 +255,9 @@ async function persistTasksStore() {
         logError('任务', '写入 tasks.json 失败', error)
     }
 }
+
+loadTasksStore()
+startTaskCleanup()
 
 function loadTasksStore() {
     try {

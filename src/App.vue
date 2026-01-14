@@ -211,6 +211,15 @@
                         >
                             🍌 图文混合生成
                         </BaseButton>
+                        <BaseButton
+                            v-if="activeTaskId && ((workspaceMode === 'text' && isTextToImageLoading) || (workspaceMode === 'image' && isLoading))"
+                            type="button"
+                            @click="handleCancelActiveTask"
+                            variant="secondary"
+                            class="flex-1 py-4 text-xl"
+                        >
+                            ⛔ 取消任务
+                        </BaseButton>
                     </div>
                 </div>
 
@@ -266,6 +275,7 @@ import {
     createApiConfig as createApiConfigRequest,
     createGenerateTask,
     createTemplate,
+    cancelGenerateTask,
     deleteApiConfig as deleteApiConfigRequest,
     deleteGalleryEntry as deleteGalleryEntryRequest,
     deleteTemplate as deleteTemplateRequest,
@@ -276,6 +286,7 @@ import {
     fetchTemplates,
     login,
     setDefaultApiConfig as setDefaultApiConfigRequest,
+    subscribeGenerateTaskEvents,
     updateApiConfig as updateApiConfigRequest,
     updateTemplate as updateTemplateRequest,
     verifySession
@@ -287,6 +298,7 @@ import type {
     ModelOption,
     StyleTemplate,
     ApiModel,
+    GenerateTask,
     CreateApiConfigPayload,
     UpdateApiConfigPayload
 } from './types'
@@ -346,6 +358,8 @@ const textToImageError = ref<string | null>(null)
 const latestResultSource = ref<'text' | 'image' | null>(null)
 const activeTaskId = ref<string | null>(null)
 const activeTaskMode = ref<'text' | 'image' | null>(null)
+const imageTaskHint = ref<string | null>(null)
+const textTaskHint = ref<string | null>(null)
 
 const selectedAspectRatio = ref('1:1')
 const gemini3ImageSize = ref('2K')
@@ -483,9 +497,18 @@ const displayResult = computed(() => {
 })
 
 const displayResponseText = computed(() => {
-    if (latestResultSource.value === 'image') return resultResponseText.value
-    if (latestResultSource.value === 'text') return textToImageResponse.value
-    return resultResponseText.value || textToImageResponse.value
+    if (latestResultSource.value === 'image') {
+        return resultResponseText.value || (isLoading.value ? imageTaskHint.value : null)
+    }
+    if (latestResultSource.value === 'text') {
+        return textToImageResponse.value || (isTextToImageLoading.value ? textTaskHint.value : null)
+    }
+    return (
+        resultResponseText.value ||
+        textToImageResponse.value ||
+        (isLoading.value ? imageTaskHint.value : null) ||
+        (isTextToImageLoading.value ? textTaskHint.value : null)
+    )
 })
 
 const displayError = computed(() => {
@@ -495,6 +518,90 @@ const displayError = computed(() => {
 })
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
+
+const formatTaskHint = (task: { status?: string; stage?: string }) => {
+    const status = task.status || ''
+    const stage = task.stage || ''
+    if (status === 'queued') return '任务排队中...'
+    if (status === 'running') {
+        if (stage === 'calling_upstream') return '正在调用上游模型...'
+        return '正在生成中...'
+    }
+    if (status === 'saving' || stage === 'saving') return '正在保存到图库...'
+    if (status === 'done') return '生成完成'
+    if (status === 'failed') return '生成失败'
+    if (status === 'canceled') return '已取消'
+    return '处理中...'
+}
+
+const applyTaskSnapshot = (task: Pick<GenerateTask, 'status' | 'stage'>, mode: 'text' | 'image') => {
+    const hint = formatTaskHint(task)
+    if (mode === 'text') {
+        textTaskHint.value = hint
+    } else {
+        imageTaskHint.value = hint
+    }
+}
+
+const awaitTaskCompletion = async (taskId: string, mode: 'text' | 'image') => {
+    if (!authToken.value) throw new Error('未登录')
+
+    let settled = false
+    let unsubscribe: null | (() => void) = null
+
+    try {
+        const task = await new Promise<GenerateTask>((resolve, reject) => {
+            const handle = (task: GenerateTask) => {
+                if (settled) return
+                applyTaskSnapshot(task, mode)
+                if (task.status === 'done') {
+                    settled = true
+                    resolve(task)
+                } else if (task.status === 'failed') {
+                    settled = true
+                    reject(new Error(task.error || '生成失败'))
+                } else if (task.status === 'canceled') {
+                    settled = true
+                    reject(new Error('任务已取消'))
+                }
+            }
+
+            unsubscribe = subscribeGenerateTaskEvents(
+                authToken.value as string,
+                taskId,
+                (_event, task) => handle(task),
+                () => {
+                    // SSE 可能被代理断开，轮询兜底会继续工作
+                }
+            )
+
+            void (async () => {
+                try {
+                    while (!settled) {
+                        const task = await fetchGenerateTask(authToken.value as string, taskId)
+                        handle(task)
+                        await sleep(2000)
+                    }
+                } catch (error) {
+                    if (!settled) {
+                        settled = true
+                        reject(error)
+                    }
+                }
+            })()
+
+            setTimeout(() => {
+                if (settled) return
+                settled = true
+                reject(new Error('生成超时'))
+            }, 5 * 60 * 1000)
+        })
+
+        return task
+    } finally {
+        unsubscribe?.()
+    }
+}
 
 const waitForTask = async (taskId: string, mode: 'text' | 'image') => {
     if (!authToken.value) {
@@ -506,6 +613,7 @@ const waitForTask = async (taskId: string, mode: 'text' | 'image') => {
     while (true) {
         const task = await fetchGenerateTask(authToken.value, taskId)
         lastStatus = task.status
+        applyTaskSnapshot(task, mode)
 
         if (task.status === 'done' && task.result?.galleryEntry) {
             return task
@@ -532,15 +640,21 @@ const runGenerateTask = async (payload: ReturnType<typeof buildGeneratePayload>,
 
     activeTaskId.value = null
     activeTaskMode.value = mode
+    imageTaskHint.value = null
+    textTaskHint.value = null
 
     if (mode === 'text') {
         isTextToImageLoading.value = true
         textToImageError.value = null
         textToImageResult.value = null
+        textToImageResponse.value = null
+        textTaskHint.value = '正在创建任务...'
     } else {
         isLoading.value = true
         error.value = null
         result.value = null
+        resultResponseText.value = null
+        imageTaskHint.value = '正在创建任务...'
     }
 
     latestResultSource.value = mode
@@ -548,7 +662,9 @@ const runGenerateTask = async (payload: ReturnType<typeof buildGeneratePayload>,
     try {
         const { taskId } = await createGenerateTask(authToken.value, payload)
         activeTaskId.value = taskId
-        const task = await waitForTask(taskId, mode)
+        LocalStorage.saveActiveTask(taskId, mode)
+        const task = await awaitTaskCompletion(taskId, mode)
+
         const entry = normalizeGalleryEntry(task.result?.galleryEntry as GalleryEntry)
         galleryEntries.value = [entry, ...galleryEntries.value]
 
@@ -571,11 +687,23 @@ const runGenerateTask = async (payload: ReturnType<typeof buildGeneratePayload>,
     } finally {
         activeTaskId.value = null
         activeTaskMode.value = null
+        LocalStorage.clearActiveTask()
         if (mode === 'text') {
             isTextToImageLoading.value = false
         } else {
             isLoading.value = false
         }
+    }
+}
+
+const handleCancelActiveTask = async () => {
+    if (!authToken.value || !activeTaskId.value) return
+    try {
+        await cancelGenerateTask(authToken.value, activeTaskId.value)
+        showNotice('success', '已发送取消请求')
+    } catch (error) {
+        const message = error instanceof Error ? error.message : '取消失败'
+        showNotice('error', message)
     }
 }
 
@@ -617,6 +745,7 @@ onMounted(async () => {
         try {
             await verifySession(authToken.value)
             await loadAllData()
+            await resumeActiveTaskIfNeeded()
         } catch (err) {
             console.error('session 失效', err)
             handleLogout()
@@ -636,6 +765,81 @@ onUnmounted(() => {
 
 const updateSelectedConfig = (value: string) => {
     selectedConfigId.value = value
+}
+
+const resumeActiveTaskIfNeeded = async () => {
+    if (!authToken.value) return
+    const cached = LocalStorage.getActiveTask()
+    if (!cached?.taskId) return
+
+    activeTaskId.value = cached.taskId
+    activeTaskMode.value = cached.mode
+    latestResultSource.value = cached.mode
+
+    if (cached.mode === 'text') {
+        isTextToImageLoading.value = true
+        textToImageError.value = null
+        textToImageResult.value = null
+        textToImageResponse.value = null
+        textTaskHint.value = '检测到未完成任务，正在恢复...'
+    } else {
+        isLoading.value = true
+        error.value = null
+        result.value = null
+        resultResponseText.value = null
+        imageTaskHint.value = '检测到未完成任务，正在恢复...'
+    }
+
+    try {
+        const snapshot = await fetchGenerateTask(authToken.value, cached.taskId)
+        applyTaskSnapshot(snapshot, cached.mode)
+
+        if (snapshot.status === 'done' && snapshot.result?.galleryEntry) {
+            const entry = normalizeGalleryEntry(snapshot.result.galleryEntry as GalleryEntry)
+            if (!galleryEntries.value.some(item => item.id === entry.id)) {
+                galleryEntries.value = [entry, ...galleryEntries.value]
+            }
+            if (cached.mode === 'text') {
+                textToImageResult.value = entry.imagePath
+                textToImageResponse.value = entry.responseText || ''
+            } else {
+                result.value = entry.imagePath
+                resultResponseText.value = entry.responseText || ''
+            }
+            return
+        }
+
+        const finished = await awaitTaskCompletion(cached.taskId, cached.mode)
+        if (finished.result?.galleryEntry) {
+            const entry = normalizeGalleryEntry(finished.result.galleryEntry as GalleryEntry)
+            if (!galleryEntries.value.some(item => item.id === entry.id)) {
+                galleryEntries.value = [entry, ...galleryEntries.value]
+            }
+            if (cached.mode === 'text') {
+                textToImageResult.value = entry.imagePath
+                textToImageResponse.value = entry.responseText || ''
+            } else {
+                result.value = entry.imagePath
+                resultResponseText.value = entry.responseText || ''
+            }
+        }
+    } catch (error) {
+        const message = error instanceof Error ? error.message : '任务恢复失败'
+        if (cached.mode === 'text') {
+            textToImageError.value = message
+        } else {
+            error.value = message
+        }
+    } finally {
+        activeTaskId.value = null
+        activeTaskMode.value = null
+        LocalStorage.clearActiveTask()
+        if (cached.mode === 'text') {
+            isTextToImageLoading.value = false
+        } else {
+            isLoading.value = false
+        }
+    }
 }
 
 const handleLogin = async () => {

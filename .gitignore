@@ -31,4 +31,5 @@ AGENTS.md
 GEMINI.md
 .claude
 server/gallery/
-server/data/gallery.json
+server/data/
+server/config/app.config.json
