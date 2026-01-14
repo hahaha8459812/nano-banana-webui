@@ -30,6 +30,12 @@
                                 >
                                     📜 日志
                                 </BaseButton>
+                                <BaseButton
+                                    @click="viewMode = 'tasks'"
+                                    :variant="viewMode === 'tasks' ? 'primary' : 'secondary'"
+                                >
+                                    🧾 任务
+                                </BaseButton>
                                 <BaseButton @click="handleLogout" variant="secondary">
                                     退出登录
                                 </BaseButton>
@@ -260,13 +266,18 @@
                 </div>
 
                 <div v-else class="mb-6">
-                    <LogsView
-                        :entries="serverLogs"
-                        :loading="logsLoading"
-                        :error="logsError"
-                        @refresh="loadServerLogs"
-                        @clear="serverLogs = []"
-                    />
+                    <template v-if="viewMode === 'logs'">
+                        <LogsView
+                            :entries="serverLogs"
+                            :loading="logsLoading"
+                            :error="logsError"
+                            @refresh="loadServerLogs"
+                            @clear="serverLogs = []"
+                        />
+                    </template>
+                    <template v-else>
+                        <TasksView :tasks="tasksList" :loading="tasksLoading" :error="tasksError" @refresh="loadTasksList" />
+                    </template>
                 </div>
 
             </template>
@@ -288,6 +299,7 @@ import Gemini3ProConfig from './components/Gemini3ProConfig.vue'
 import GalleryView from './components/GalleryView.vue'
 import GalleryDetailModal from './components/GalleryDetailModal.vue'
 import LogsView from './components/LogsView.vue'
+import TasksView from './components/TasksView.vue'
 import {
     createApiConfig as createApiConfigRequest,
     createGenerateTask,
@@ -300,6 +312,7 @@ import {
     fetchGallery,
     fetchGenerateTask,
     fetchServerLogs,
+    fetchTasks,
     fetchModels,
     fetchTemplates,
     login,
@@ -333,7 +346,7 @@ const uiNotice = ref<{ type: 'success' | 'error'; message: string } | null>(null
 const isAuthenticating = ref(false)
 const authToken = ref(LocalStorage.getAuthToken())
 const isAuthenticated = computed(() => Boolean(authToken.value))
-const viewMode = ref<'workspace' | 'gallery' | 'logs'>('workspace')
+const viewMode = ref<'workspace' | 'gallery' | 'logs' | 'tasks'>('workspace')
 const workspaceMode = ref<'text' | 'image'>('text')
 
 const apiConfigs = ref<ApiConfigSummary[]>([])
@@ -363,6 +376,10 @@ const serverLogs = ref<ServerLogEntry[]>([])
 const logsLoading = ref(false)
 const logsError = ref<string | null>(null)
 let stopLogsStream: null | (() => void) = null
+
+const tasksList = ref<GenerateTask[]>([])
+const tasksLoading = ref(false)
+const tasksError = ref<string | null>(null)
 
 const selectedImages = ref<string[]>([])
 const selectedStyle = ref('')
@@ -544,21 +561,6 @@ const displayError = computed(() => {
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
 
-const formatTaskHint = (task: { status?: string; stage?: string }) => {
-    const status = task.status || ''
-    const stage = task.stage || ''
-    if (status === 'queued') return '任务排队中...'
-    if (status === 'running') {
-        if (stage === 'calling_upstream') return '正在调用上游模型...'
-        return '正在生成中...'
-    }
-    if (status === 'saving' || stage === 'saving') return '正在保存到图库...'
-    if (status === 'done') return '生成完成'
-    if (status === 'failed') return '生成失败'
-    if (status === 'canceled') return '已取消'
-    return '处理中...'
-}
-
 const applyTaskSnapshot = (task: Pick<GenerateTask, 'status' | 'stage'>, mode: 'text' | 'image') => {
     const hint = formatTaskHint(task)
     if (mode === 'text') {
@@ -568,8 +570,59 @@ const applyTaskSnapshot = (task: Pick<GenerateTask, 'status' | 'stage'>, mode: '
     }
 }
 
+const stageLabel = (stage?: string) => {
+    switch (stage) {
+        case 'queued':
+            return '排队中'
+        case 'calling_upstream':
+            return '调用上游'
+        case 'saving':
+            return '保存中'
+        case 'downloading':
+            return '下载候选图'
+        case 'selecting_primary':
+            return '选择主图'
+        case 'writing_image':
+            return '写入主图'
+        case 'generating_thumbnail':
+            return '生成缩略图'
+        case 'writing_index':
+            return '写入图库索引'
+        case 'done':
+            return '完成'
+        case 'failed':
+            return '失败'
+        case 'canceled':
+            return '已取消'
+        default:
+            return ''
+    }
+}
+
+const formatTaskHint = (task: { status?: string; stage?: string }) => {
+    const status = task.status || ''
+    const stage = task.stage || ''
+    const stageText = stageLabel(stage)
+    if (status === 'queued') return stageText ? `任务排队中（${stageText}）...` : '任务排队中...'
+    if (status === 'running') {
+        if (stageText) return `正在生成中（${stageText}）...`
+        if (stage === 'calling_upstream') return '正在调用上游模型...'
+        return '正在生成中...'
+    }
+    if (status === 'saving' || stage === 'saving') return stageText ? `正在保存到图库（${stageText}）...` : '正在保存到图库...'
+    if (status === 'done') return '生成完成'
+    if (status === 'failed') return '生成失败'
+    if (status === 'canceled') return '已取消'
+    return stageText ? `处理中（${stageText}）...` : '处理中...'
+}
+
+let activeTaskAbort: AbortController | null = null
+
 const awaitTaskCompletion = async (taskId: string, mode: 'text' | 'image') => {
     if (!authToken.value) throw new Error('未登录')
+
+    activeTaskAbort?.abort()
+    activeTaskAbort = new AbortController()
 
     let settled = false
     let unsubscribe: null | (() => void) = null
@@ -591,18 +644,51 @@ const awaitTaskCompletion = async (taskId: string, mode: 'text' | 'image') => {
                 }
             }
 
-            unsubscribe = subscribeGenerateTaskEvents(
-                authToken.value as string,
-                taskId,
-                (_event, task) => handle(task),
-                () => {
-                    // SSE 可能被代理断开，轮询兜底会继续工作
-                }
-            )
+            const startStream = (attempt = 0) => {
+                if (settled) return
+                if (activeTaskAbort?.signal.aborted) return
+                unsubscribe?.()
+                unsubscribe = null
+
+                void fetchGenerateTask(authToken.value as string, taskId)
+                    .then(task => handle(task))
+                    .catch(() => null)
+
+                unsubscribe = subscribeGenerateTaskEvents(
+                    authToken.value as string,
+                    taskId,
+                    (event, task) => {
+                        if (event === 'canceled') {
+                            task.status = 'canceled'
+                        }
+                        handle(task)
+                    },
+                    async () => {
+                        if (settled) return
+                        if (activeTaskAbort?.signal.aborted) return
+                        try {
+                            const snapshot = await fetchGenerateTask(authToken.value as string, taskId)
+                            handle(snapshot)
+                        } catch {
+                            // ignore
+                        }
+
+                        const delay = Math.min(30_000, 1000 * Math.pow(2, attempt))
+                        setTimeout(() => startStream(attempt + 1), delay)
+                    }
+                )
+            }
+
+            startStream(0)
 
             void (async () => {
                 try {
                     while (!settled) {
+                        if (activeTaskAbort?.signal.aborted) {
+                            settled = true
+                            reject(new Error('任务已取消'))
+                            return
+                        }
                         const task = await fetchGenerateTask(authToken.value as string, taskId)
                         handle(task)
                         await sleep(2000)
@@ -625,6 +711,11 @@ const awaitTaskCompletion = async (taskId: string, mode: 'text' | 'image') => {
         return task
     } finally {
         unsubscribe?.()
+        if (activeTaskAbort?.signal.aborted) {
+            // keep aborted
+        } else {
+            activeTaskAbort = null
+        }
     }
 }
 
@@ -724,6 +815,7 @@ const runGenerateTask = async (payload: ReturnType<typeof buildGeneratePayload>,
 const handleCancelActiveTask = async () => {
     if (!authToken.value || !activeTaskId.value) return
     try {
+        activeTaskAbort?.abort()
         await cancelGenerateTask(authToken.value, activeTaskId.value)
         showNotice('success', '已发送取消请求')
     } catch (error) {
@@ -807,6 +899,19 @@ const loadServerLogs = async () => {
     }
 }
 
+const loadTasksList = async () => {
+    if (!authToken.value) return
+    try {
+        tasksLoading.value = true
+        tasksError.value = null
+        tasksList.value = await fetchTasks(authToken.value, 200)
+    } catch (error) {
+        tasksError.value = error instanceof Error ? error.message : '加载任务失败'
+    } finally {
+        tasksLoading.value = false
+    }
+}
+
 const startLogsStream = () => {
     if (!authToken.value) return
     stopLogsStream?.()
@@ -831,6 +936,9 @@ watch(
         } else {
             stopLogsStream?.()
             stopLogsStream = null
+        }
+        if (mode === 'tasks') {
+            void loadTasksList()
         }
     }
 )
@@ -937,6 +1045,7 @@ const handleLogout = () => {
     templates.value = []
     galleryEntries.value = []
     serverLogs.value = []
+    tasksList.value = []
     selectedImages.value = []
     selectedConfigId.value = ''
     selectedModelId.value = ''

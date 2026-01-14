@@ -375,6 +375,15 @@ function broadcastTaskEvent(taskId, event, payload) {
     }
 }
 
+function updateTask(taskId, patch, event = 'status') {
+    const task = tasks.get(taskId)
+    if (!task) return null
+    Object.assign(task, patch)
+    schedulePersistTasks()
+    broadcastTaskEvent(taskId, event, publicTaskView(task))
+    return task
+}
+
 function createTaskState({ requestId, token, payload }) {
     const id = uuid()
     return {
@@ -433,19 +442,19 @@ async function runTask(taskId) {
     if (!task) return
 
     if (task.cancelRequested) {
-        task.status = 'canceled'
-        task.stage = 'canceled'
-        task.finishedAt = new Date().toISOString()
-        schedulePersistTasks()
-        broadcastTaskEvent(taskId, 'done', publicTaskView(task))
+        updateTask(
+            taskId,
+            {
+                status: 'canceled',
+                stage: 'canceled',
+                finishedAt: new Date().toISOString()
+            },
+            'canceled'
+        )
         return
     }
 
-    task.status = 'running'
-    task.stage = 'calling_upstream'
-    task.startedAt = new Date().toISOString()
-    schedulePersistTasks()
-    broadcastTaskEvent(taskId, 'status', publicTaskView(task))
+    updateTask(taskId, { status: 'running', stage: 'calling_upstream', startedAt: new Date().toISOString() }, 'status')
 
     const abortController = new AbortController()
     task.abortController = abortController
@@ -487,11 +496,15 @@ async function runTask(taskId) {
             abortController.signal
         )
 
-        task.stage = 'saving'
-        task.upstreamMs = Date.now() - upstreamStart
-        task.candidates = Array.isArray(result.imageCandidates) ? result.imageCandidates.length : 0
-        schedulePersistTasks()
-        broadcastTaskEvent(taskId, 'status', publicTaskView(task))
+        updateTask(
+            taskId,
+            {
+                stage: 'saving',
+                upstreamMs: Date.now() - upstreamStart,
+                candidates: Array.isArray(result.imageCandidates) ? result.imageCandidates.length : 0
+            },
+            'status'
+        )
         logInfo(
             '生成',
             '上游返回完成',
@@ -516,28 +529,27 @@ async function runTask(taskId) {
                 imageSize: result.imageSizeUsed
             },
             task.requestId,
-            { includeImageData: false }
+            { includeImageData: false },
+            stage => updateTask(taskId, { stage }, 'status')
         )
 
-        task.status = 'done'
-        task.stage = 'done'
-        task.finishedAt = new Date().toISOString()
-        task.result = { galleryEntry: savedEntry }
-        schedulePersistTasks()
-        broadcastTaskEvent(taskId, 'done', publicTaskView(task))
+        updateTask(
+            taskId,
+            {
+                status: 'done',
+                stage: 'done',
+                finishedAt: new Date().toISOString(),
+                result: { galleryEntry: savedEntry }
+            },
+            'done'
+        )
     } catch (error) {
         if (task.cancelRequested) {
-            task.status = 'canceled'
-            task.stage = 'canceled'
-            task.error = '已取消'
+            updateTask(taskId, { status: 'canceled', stage: 'canceled', error: '已取消' }, 'canceled')
         } else {
-            task.status = 'failed'
-            task.stage = 'failed'
-            task.error = error instanceof Error ? error.message : String(error)
+            updateTask(taskId, { status: 'failed', stage: 'failed', error: error instanceof Error ? error.message : String(error) }, 'error')
         }
-        task.finishedAt = new Date().toISOString()
-        schedulePersistTasks()
-        broadcastTaskEvent(taskId, 'error', publicTaskView(task))
+        updateTask(taskId, { finishedAt: new Date().toISOString() }, task.cancelRequested ? 'canceled' : 'error')
     } finally {
         task.abortController = null
     }
@@ -956,6 +968,19 @@ app.get('/api/generate/task/:id/events', authMiddleware, (req, res) => {
     })
 })
 
+app.get('/api/tasks', authMiddleware, (req, res) => {
+    const limit = Math.max(1, Math.min(Number(req.query.limit || 200), 2000))
+    const list = Array.from(tasks.values())
+        .map(publicTaskView)
+        .sort((a, b) => {
+            const ta = Date.parse(a.createdAt || '') || 0
+            const tb = Date.parse(b.createdAt || '') || 0
+            return tb - ta
+        })
+        .slice(0, limit)
+    res.json({ tasks: list })
+})
+
 app.delete('/api/generate/task/:id', authMiddleware, (req, res) => {
     const task = tasks.get(req.params.id)
     if (!task) {
@@ -970,7 +995,7 @@ app.delete('/api/generate/task/:id', authMiddleware, (req, res) => {
     task.error = '已取消'
     task.finishedAt = new Date().toISOString()
     schedulePersistTasks()
-    broadcastTaskEvent(task.id, 'error', publicTaskView(task))
+    broadcastTaskEvent(task.id, 'canceled', publicTaskView(task))
     logInfo('任务', '已取消任务', { taskId: task.id }, req.requestId)
     res.json(publicTaskView(task))
 })
@@ -1351,10 +1376,18 @@ function filterTextResponse(text) {
 async function persistGalleryEntry(
     { prompt, responseText, imageSource, imageCandidates, configLabel, configId, modelId, aspectRatio, imageSize },
     requestId,
-    { includeImageData } = { includeImageData: false }
+    { includeImageData } = { includeImageData: false },
+    onStage
 ) {
+    onStage?.('downloading')
     const candidates = Array.isArray(imageCandidates) && imageCandidates.length ? imageCandidates : [imageSource].filter(Boolean)
-    const { fileName, imagePath, thumbnailPath, imageData } = await saveImagesToGallery(candidates, requestId, { includeImageData })
+    const { fileName, imagePath, thumbnailPath, imageData } = await saveImagesToGallery(
+        candidates,
+        requestId,
+        { includeImageData },
+        stage => onStage?.(stage)
+    )
+    onStage?.('writing_index')
     const entries = await loadGallery()
     const entry = {
         id: uuid(),
@@ -1376,7 +1409,8 @@ async function persistGalleryEntry(
     return { entry, imageData }
 }
 
-async function saveImagesToGallery(imageSources, requestId, { includeImageData } = { includeImageData: false }) {
+async function saveImagesToGallery(imageSources, requestId, { includeImageData } = { includeImageData: false }, onStage) {
+    onStage?.('downloading')
     const downloads = []
     for (const source of imageSources) {
         try {
@@ -1391,6 +1425,7 @@ async function saveImagesToGallery(imageSources, requestId, { includeImageData }
     }
 
     downloads.sort((a, b) => b.byteLength - a.byteLength)
+    onStage?.('selecting_primary')
     const primary = downloads[0]
     const smallest = downloads[downloads.length - 1]
     logInfo(
@@ -1403,12 +1438,14 @@ async function saveImagesToGallery(imageSources, requestId, { includeImageData }
     const extension = primary.extension || 'png'
     const fileName = `${Date.now()}-${uuid()}.${extension}`
     const filePath = path.join(GALLERY_DIR, fileName)
+    onStage?.('writing_image')
     await fs.promises.writeFile(filePath, primary.buffer)
 
     const thumbnailFileName = `thumb-${fileName}`
     const thumbnailFsPath = path.join(THUMBNAILS_DIR, thumbnailFileName)
 
     const hasDistinctSmall = downloads.length > 1 && smallest.byteLength < primary.byteLength * 0.8
+    onStage?.('generating_thumbnail')
     if (hasDistinctSmall) {
         try {
             await sharp(smallest.buffer)

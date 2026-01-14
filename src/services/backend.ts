@@ -130,7 +130,12 @@ export async function cancelGenerateTask(token: string, id: string) {
     return request<GenerateTask>(`/api/generate/task/${id}`, { method: 'DELETE' }, token)
 }
 
-export type GenerateTaskEventName = 'status' | 'done' | 'error'
+export async function fetchTasks(token: string, limit = 200) {
+    const data = await request<{ tasks: GenerateTask[] }>(`/api/tasks?limit=${encodeURIComponent(String(limit))}`, { method: 'GET' }, token)
+    return data.tasks || []
+}
+
+export type GenerateTaskEventName = 'status' | 'done' | 'error' | 'canceled'
 
 export function subscribeGenerateTaskEvents(
     token: string,

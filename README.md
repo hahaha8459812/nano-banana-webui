@@ -107,7 +107,19 @@ cd .. && npm run dev
   - `UPSTREAM_TIMEOUT_MS`（默认 180000）  
   - `UPSTREAM_RETRIES`（默认 1）  
   - `UPSTREAM_RETRY_DELAY_MS`（默认 800）  
-- 反向代理超时需大于后端超时（如 nginx `proxy_read_timeout` ≥ 180s）。SSE 需关闭 proxy buffering、保持长连接。
+- 反向代理超时需大于后端超时（如 nginx `proxy_read_timeout` ≥ 180s）。
+- **SSE（任务进度/日志流）反代建议**（nginx 示例）：
+  ```nginx
+  location /api/ {
+    proxy_http_version 1.1;
+    proxy_set_header Connection "";
+    proxy_buffering off;
+    proxy_cache off;
+    proxy_read_timeout 360s;
+    proxy_send_timeout 360s;
+  }
+  ```
+  - 如果走 Cloudflare/其他 CDN，需允许长连接并调高超时；否则 SSE 可能被中途断开（前端已做指数退避重连 + 轮询兜底）。
 - 任务队列为单实例内存 + tasks.json 持久化，重启会保留历史完成/失败记录，正在跑的会标记失败；多实例需要共享队列/存储时自行扩展。
 - `server/gallery`、`server/data` 建议挂载持久化磁盘。
 - `app.config.json` 含敏感信息，勿提交；可用 CI/CD/密管分发。
