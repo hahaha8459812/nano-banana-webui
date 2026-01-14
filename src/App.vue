@@ -267,13 +267,16 @@
 
                 <div v-else class="mb-6">
                     <template v-if="viewMode === 'logs'">
-                        <LogsView
-                            :entries="serverLogs"
-                            :loading="logsLoading"
-                            :error="logsError"
-                            @refresh="loadServerLogs"
-                            @clear="serverLogs = []"
-                        />
+	                        <LogsView
+	                            :entries="serverLogs"
+	                            :loading="logsLoading"
+	                            :error="logsError"
+	                            :limit="logsLimit"
+	                            :limit-options="[100, 300, 1000, 2000]"
+	                            @update:limit="setLogsLimit"
+	                            @refresh="loadServerLogs"
+	                            @clear="serverLogs = []"
+	                        />
                     </template>
                     <template v-else>
                         <TasksView :tasks="tasksList" :loading="tasksLoading" :error="tasksError" @refresh="loadTasksList" />
@@ -376,6 +379,7 @@ const serverLogs = ref<ServerLogEntry[]>([])
 const logsLoading = ref(false)
 const logsError = ref<string | null>(null)
 let stopLogsStream: null | (() => void) = null
+const logsLimit = ref(LocalStorage.getLogsLimit(300))
 
 const tasksList = ref<GenerateTask[]>([])
 const tasksLoading = ref(false)
@@ -890,8 +894,8 @@ const loadServerLogs = async () => {
     try {
         logsLoading.value = true
         logsError.value = null
-        const logs = await fetchServerLogs(authToken.value, 300)
-        serverLogs.value = logs
+        const logs = await fetchServerLogs(authToken.value, logsLimit.value)
+        serverLogs.value = [...logs].reverse()
     } catch (error) {
         logsError.value = error instanceof Error ? error.message : '加载日志失败'
     } finally {
@@ -918,13 +922,28 @@ const startLogsStream = () => {
     stopLogsStream = subscribeServerLogsEvents(
         authToken.value,
         entry => {
-            serverLogs.value = [...serverLogs.value, entry].slice(-2000)
+            serverLogs.value = [entry, ...serverLogs.value].slice(0, logsLimit.value)
         },
         () => {
             // 断线时允许用户手动刷新，避免频繁重连造成代理压力
         }
     )
 }
+
+const setLogsLimit = (value: number) => {
+    logsLimit.value = value
+}
+
+watch(
+    () => logsLimit.value,
+    value => {
+        LocalStorage.saveLogsLimit(value)
+        serverLogs.value = serverLogs.value.slice(0, value)
+        if (viewMode.value === 'logs') {
+            void loadServerLogs()
+        }
+    }
+)
 
 watch(
     () => viewMode.value,

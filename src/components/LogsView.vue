@@ -4,9 +4,19 @@
             <div class="flex items-center justify-between w-full gap-3">
                 <div>
                     <h3 class="text-xl font-black flex items-center gap-2">📜 日志</h3>
-                    <p class="text-sm text-skin-muted">最近 {{ entries.length }} 条（仅显示后端缓冲日志）</p>
+                    <p class="text-sm text-skin-muted">最新在上，最多显示 {{ limit }} 条</p>
                 </div>
                 <div class="flex gap-2">
+                    <label class="flex items-center gap-2 text-xs text-dark-muted">
+                        上限
+                        <select
+                            class="bg-dark-bg border border-dark-border rounded-lg px-2 py-1 text-xs text-dark-text"
+                            :value="limit"
+                            @change="$emit('update:limit', Number(($event.target as HTMLSelectElement).value))"
+                        >
+                            <option v-for="n in limitOptions" :key="n" :value="n">{{ n }}</option>
+                        </select>
+                    </label>
                     <BaseButton @click="$emit('refresh')" icon="🔄" variant="secondary" :disabled="loading">
                         刷新
                     </BaseButton>
@@ -62,19 +72,24 @@ const props = defineProps<{
     entries: ServerLogEntry[]
     loading: boolean
     error: string | null
+    limit: number
+    limitOptions?: number[]
 }>()
 
 defineEmits<{
     refresh: []
     clear: []
+    'update:limit': [limit: number]
 }>()
 
 const keyword = ref('')
+const limitOptions = computed(() => props.limitOptions?.length ? props.limitOptions : [100, 300, 1000, 2000])
 
 const filtered = computed(() => {
     const q = keyword.value.trim().toLowerCase()
-    if (!q) return props.entries
-    return props.entries.filter(item => {
+    const source = props.entries.slice(0, Math.max(1, props.limit || 300))
+    if (!q) return source
+    return source.filter(item => {
         const extraText = item.extra ? safeStringify(item.extra).toLowerCase() : ''
         return (
             (item.scope || '').toLowerCase().includes(q) ||
@@ -101,4 +116,3 @@ const formatTime = (value: string) => {
     }
 }
 </script>
-

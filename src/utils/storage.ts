@@ -5,6 +5,7 @@ export class LocalStorage {
     private static readonly MODEL_SELECTIONS = 'nano-banana-model-selection'
     private static readonly API_BASE_URL = 'nano-banana-api-base-url'
     private static readonly ACTIVE_TASK = 'nano-banana-active-task'
+    private static readonly LOGS_LIMIT = 'nano-banana-logs-limit'
 
     static saveAuthToken(token: string): void {
         try {
@@ -126,6 +127,26 @@ export class LocalStorage {
             localStorage.removeItem(this.ACTIVE_TASK)
         } catch (error) {
             console.warn('无法清除任务状态:', error)
+        }
+    }
+
+    static saveLogsLimit(limit: number): void {
+        try {
+            localStorage.setItem(this.LOGS_LIMIT, String(limit))
+        } catch (error) {
+            console.warn('无法保存日志显示上限:', error)
+        }
+    }
+
+    static getLogsLimit(defaultValue = 300): number {
+        try {
+            const raw = localStorage.getItem(this.LOGS_LIMIT)
+            const parsed = Number(raw)
+            if (!Number.isFinite(parsed) || parsed <= 0) return defaultValue
+            return parsed
+        } catch (error) {
+            console.warn('无法读取日志显示上限:', error)
+            return defaultValue
         }
     }
 
