@@ -7,6 +7,7 @@ import type {
     GalleryEntry,
     GenerateRequest,
     GenerateTask,
+    ServerLogEntry,
     StyleTemplate,
     UpdateApiConfigPayload
 } from '../types'
@@ -222,6 +223,105 @@ export function subscribeGenerateTaskEvents(
 
     void run()
 
+    return () => controller.abort()
+}
+
+export async function fetchServerLogs(token: string, limit = 200) {
+    const data = await request<{ logs: ServerLogEntry[] }>(`/api/logs?limit=${encodeURIComponent(String(limit))}`, { method: 'GET' }, token)
+    return data.logs || []
+}
+
+export function subscribeServerLogsEvents(
+    token: string,
+    onLog: (entry: ServerLogEntry) => void,
+    onError?: (error: unknown) => void
+) {
+    const controller = new AbortController()
+    const url = `${getApiBaseUrl().replace(/\/$/, '')}/api/logs/events`
+
+    const run = async () => {
+        try {
+            const response = await fetch(url, {
+                method: 'GET',
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                    Accept: 'text/event-stream'
+                },
+                signal: controller.signal
+            })
+
+            if (!response.ok) {
+                const message = await extractErrorMessage(response)
+                throw new Error(message)
+            }
+
+            const reader = response.body?.getReader()
+            if (!reader) {
+                throw new Error('浏览器不支持读取 SSE 流')
+            }
+
+            const decoder = new TextDecoder('utf-8')
+            let buffer = ''
+            let currentEvent: string | null = null
+            let currentData = ''
+
+            const flush = () => {
+                if (!currentEvent || !currentData.trim()) {
+                    currentEvent = null
+                    currentData = ''
+                    return
+                }
+                if (currentEvent !== 'log') {
+                    currentEvent = null
+                    currentData = ''
+                    return
+                }
+                try {
+                    const parsed = JSON.parse(currentData) as ServerLogEntry
+                    onLog(parsed)
+                } catch (error) {
+                    onError?.(error)
+                } finally {
+                    currentEvent = null
+                    currentData = ''
+                }
+            }
+
+            while (true) {
+                const { value, done } = await reader.read()
+                if (done) break
+                buffer += decoder.decode(value, { stream: true })
+
+                let idx
+                while ((idx = buffer.indexOf('\n\n')) !== -1) {
+                    const chunk = buffer.slice(0, idx)
+                    buffer = buffer.slice(idx + 2)
+
+                    const lines = chunk.split('\n')
+                    for (const rawLine of lines) {
+                        const line = rawLine.trimEnd()
+                        if (!line) continue
+                        if (line.startsWith(':')) continue
+                        if (line.startsWith('event:')) {
+                            currentEvent = line.slice('event:'.length).trim()
+                            continue
+                        }
+                        if (line.startsWith('data:')) {
+                            currentData += line.slice('data:'.length).trim()
+                            continue
+                        }
+                    }
+
+                    flush()
+                }
+            }
+        } catch (error) {
+            if ((error as Error)?.name === 'AbortError') return
+            onError?.(error)
+        }
+    }
+
+    void run()
     return () => controller.abort()
 }
 

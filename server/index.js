@@ -32,6 +32,36 @@ const MAX_CONCURRENT_TASKS = Number(process.env.MAX_CONCURRENT_TASKS || 1)
 const MAX_QUEUE_SIZE = Number(process.env.MAX_QUEUE_SIZE || 10)
 const TASK_TTL_MS = Number(process.env.TASK_TTL_MS || 24 * 60 * 60 * 1000)
 const SSE_HEARTBEAT_MS = Number(process.env.SSE_HEARTBEAT_MS || 15_000)
+const LOG_BUFFER_LIMIT = Number(process.env.LOG_BUFFER_LIMIT || 2000)
+
+const logBuffer = []
+const logListeners = new Set()
+
+function pushLog(level, scope, message, extra, requestId) {
+    const entry = {
+        id: uuid(),
+        time: new Date().toISOString(),
+        level,
+        scope,
+        message,
+        requestId: requestId || '',
+        extra: extra ?? null
+    }
+
+    logBuffer.push(entry)
+    if (logBuffer.length > LOG_BUFFER_LIMIT) {
+        logBuffer.splice(0, logBuffer.length - LOG_BUFFER_LIMIT)
+    }
+
+    for (const res of logListeners) {
+        try {
+            res.write(`event: log\n`)
+            res.write(`data: ${JSON.stringify(entry)}\n\n`)
+        } catch {
+            // ignore
+        }
+    }
+}
 
 function isTransientNetworkError(error) {
     if (!error) return false
@@ -95,12 +125,15 @@ function logInfo(scope, message, extra, requestId) {
     } else {
         console.log(`${prefix} ${message}`)
     }
+    pushLog('info', scope, message, extra, requestId)
 }
 
 function logError(scope, message, error, requestId) {
     const time = new Date().toISOString()
     const prefix = requestId ? `[${time}][${scope}][${requestId}]` : `[${time}][${scope}]`
     console.error(`${prefix} ${message}`, error)
+    const extra = error instanceof Error ? { message: error.message, stack: error.stack } : error
+    pushLog('error', scope, message, extra, requestId)
 }
 
 app.use(cors())
@@ -739,6 +772,34 @@ app.get('/api/api-configs/:id/models', authMiddleware, async (req, res) => {
         logError('models', '????????', error)
         res.status(500).json({ message: error.message || '????????' })
     }
+})
+
+app.get('/api/logs', authMiddleware, (req, res) => {
+    const limit = Math.max(1, Math.min(Number(req.query.limit || 200), 2000))
+    const slice = logBuffer.slice(-limit)
+    res.json({ logs: slice })
+})
+
+app.get('/api/logs/events', authMiddleware, (req, res) => {
+    res.setHeader('Content-Type', 'text/event-stream')
+    res.setHeader('Cache-Control', 'no-cache')
+    res.setHeader('Connection', 'keep-alive')
+    res.flushHeaders?.()
+
+    const heartbeatTimer = setInterval(() => {
+        try {
+            res.write(`: ping\n\n`)
+        } catch {
+            // ignore
+        }
+    }, SSE_HEARTBEAT_MS)
+
+    logListeners.add(res)
+
+    req.on('close', () => {
+        clearInterval(heartbeatTimer)
+        logListeners.delete(res)
+    })
 })
 
 app.get('/api/templates', authMiddleware, async (req, res) => {

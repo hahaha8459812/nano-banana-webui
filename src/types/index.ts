@@ -112,3 +112,15 @@ export interface GalleryEntry {
     imageSize?: string
     createdAt: string
 }
+
+export type ServerLogLevel = 'info' | 'error'
+
+export interface ServerLogEntry {
+    id: string
+    time: string
+    level: ServerLogLevel
+    scope: string
+    message: string
+    requestId?: string
+    extra?: unknown
+}

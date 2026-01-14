@@ -24,6 +24,12 @@
                                 >
                                     🖼 图库
                                 </BaseButton>
+                                <BaseButton
+                                    @click="viewMode = 'logs'"
+                                    :variant="viewMode === 'logs' ? 'primary' : 'secondary'"
+                                >
+                                    📜 日志
+                                </BaseButton>
                                 <BaseButton @click="handleLogout" variant="secondary">
                                     退出登录
                                 </BaseButton>
@@ -235,7 +241,7 @@
                     </BaseCard>
                 </div>
 
-                <div v-else class="mb-6">
+                <div v-else-if="viewMode === 'gallery'" class="mb-6">
                     <GalleryView
                         :entries="paginatedGalleryEntries"
                         :total="galleryEntries.length"
@@ -250,6 +256,16 @@
                         :visible="Boolean(selectedGalleryEntry)"
                         :entry="selectedGalleryEntry"
                         @close="selectedGalleryEntry = null"
+                    />
+                </div>
+
+                <div v-else class="mb-6">
+                    <LogsView
+                        :entries="serverLogs"
+                        :loading="logsLoading"
+                        :error="logsError"
+                        @refresh="loadServerLogs"
+                        @clear="serverLogs = []"
                     />
                 </div>
 
@@ -271,6 +287,7 @@ import AspectRatioSelector from './components/AspectRatioSelector.vue'
 import Gemini3ProConfig from './components/Gemini3ProConfig.vue'
 import GalleryView from './components/GalleryView.vue'
 import GalleryDetailModal from './components/GalleryDetailModal.vue'
+import LogsView from './components/LogsView.vue'
 import {
     createApiConfig as createApiConfigRequest,
     createGenerateTask,
@@ -282,11 +299,13 @@ import {
     fetchApiConfigs,
     fetchGallery,
     fetchGenerateTask,
+    fetchServerLogs,
     fetchModels,
     fetchTemplates,
     login,
     setDefaultApiConfig as setDefaultApiConfigRequest,
     subscribeGenerateTaskEvents,
+    subscribeServerLogsEvents,
     updateApiConfig as updateApiConfigRequest,
     updateTemplate as updateTemplateRequest,
     verifySession
@@ -299,6 +318,7 @@ import type {
     StyleTemplate,
     ApiModel,
     GenerateTask,
+    ServerLogEntry,
     CreateApiConfigPayload,
     UpdateApiConfigPayload
 } from './types'
@@ -313,7 +333,7 @@ const uiNotice = ref<{ type: 'success' | 'error'; message: string } | null>(null
 const isAuthenticating = ref(false)
 const authToken = ref(LocalStorage.getAuthToken())
 const isAuthenticated = computed(() => Boolean(authToken.value))
-const viewMode = ref<'workspace' | 'gallery'>('workspace')
+const viewMode = ref<'workspace' | 'gallery' | 'logs'>('workspace')
 const workspaceMode = ref<'text' | 'image'>('text')
 
 const apiConfigs = ref<ApiConfigSummary[]>([])
@@ -338,6 +358,11 @@ const paginatedGalleryEntries = computed(() => {
     return galleryEntries.value.slice(start, start + galleryPageSize.value)
 })
 const selectedGalleryEntry = ref<GalleryEntry | null>(null)
+
+const serverLogs = ref<ServerLogEntry[]>([])
+const logsLoading = ref(false)
+const logsError = ref<string | null>(null)
+let stopLogsStream: null | (() => void) = null
 
 const selectedImages = ref<string[]>([])
 const selectedStyle = ref('')
@@ -761,11 +786,54 @@ onMounted(() => {
 
 onUnmounted(() => {
     window.removeEventListener('resize', handleGalleryResize)
+    stopLogsStream?.()
 })
 
 const updateSelectedConfig = (value: string) => {
     selectedConfigId.value = value
 }
+
+const loadServerLogs = async () => {
+    if (!authToken.value) return
+    try {
+        logsLoading.value = true
+        logsError.value = null
+        const logs = await fetchServerLogs(authToken.value, 300)
+        serverLogs.value = logs
+    } catch (error) {
+        logsError.value = error instanceof Error ? error.message : '加载日志失败'
+    } finally {
+        logsLoading.value = false
+    }
+}
+
+const startLogsStream = () => {
+    if (!authToken.value) return
+    stopLogsStream?.()
+    stopLogsStream = subscribeServerLogsEvents(
+        authToken.value,
+        entry => {
+            serverLogs.value = [...serverLogs.value, entry].slice(-2000)
+        },
+        () => {
+            // 断线时允许用户手动刷新，避免频繁重连造成代理压力
+        }
+    )
+}
+
+watch(
+    () => viewMode.value,
+    mode => {
+        if (!isAuthenticated.value) return
+        if (mode === 'logs') {
+            void loadServerLogs()
+            startLogsStream()
+        } else {
+            stopLogsStream?.()
+            stopLogsStream = null
+        }
+    }
+)
 
 const resumeActiveTaskIfNeeded = async () => {
     if (!authToken.value) return
@@ -868,10 +936,13 @@ const handleLogout = () => {
     apiConfigs.value = []
     templates.value = []
     galleryEntries.value = []
+    serverLogs.value = []
     selectedImages.value = []
     selectedConfigId.value = ''
     selectedModelId.value = ''
     modelOptions.value = []
+    stopLogsStream?.()
+    stopLogsStream = null
 }
 
 const loadAllData = async () => {
