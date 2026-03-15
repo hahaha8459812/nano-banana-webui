@@ -8,6 +8,7 @@ import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
 import { v4 as uuid } from 'uuid'
 import sharp from 'sharp'
+import { normalizeModelId, supportsGoogleSearch, supportsImageSize } from '../src/shared/modelCapabilities.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -1068,7 +1069,7 @@ async function generateImage({ apiConfig, prompt, images, model, aspectRatio, im
     }
 
     const resolvedModel = model || apiConfig.model
-    const isGemini3Pro = model?.toLowerCase().includes('gemini-3-pro-image')
+    const normalizedModelId = normalizeModelId(resolvedModel)
     const messageContent =
         !images || images.length === 0
             ? prompt
@@ -1091,13 +1092,13 @@ async function generateImage({ apiConfig, prompt, images, model, aspectRatio, im
     if (aspectRatio) {
         imageConfig.aspect_ratio = aspectRatio
     }
-    if (isGemini3Pro && imageSize) {
+    if (supportsImageSize(normalizedModelId) && imageSize) {
         imageConfig.image_size = imageSize
     }
     if (Object.keys(imageConfig).length > 0) {
         payload.image_config = imageConfig
     }
-    if (isGemini3Pro && enableGoogleSearch) {
+    if (supportsGoogleSearch(normalizedModelId) && enableGoogleSearch) {
         payload.tools = [{ google_search: {} }]
     }
 

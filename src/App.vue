@@ -187,16 +187,20 @@
                 </div>
 
                 <!-- Shared Configuration Section -->
-                <div v-if="viewMode === 'workspace' && (showAspectRatioSelector || showGemini3ProConfig)" class="mb-6 grid grid-cols-1 md:grid-cols-2 gap-4 lg:gap-6">
+                <div v-if="viewMode === 'workspace' && (showAspectRatioSelector || showImageSizeConfig)" class="mb-6 grid grid-cols-1 md:grid-cols-2 gap-4 lg:gap-6">
                     <div v-if="showAspectRatioSelector" class="flex flex-col">
                         <BaseCard title="🧮 图像宽高比">
-                            <AspectRatioSelector v-model="selectedAspectRatio" :model-type="showGemini3ProConfig ? 'gemini-3-pro-image' : 'default'" :image-size="gemini3ImageSize" />
+                            <AspectRatioSelector v-model="selectedAspectRatio" :model-type="showImageSizeConfig ? 'gemini-3-pro-image' : 'default'" :image-size="gemini3ImageSize" />
                         </BaseCard>
                     </div>
 
-                    <div v-if="showGemini3ProConfig" class="flex flex-col">
-                        <BaseCard title="🧠 Gemini 3 Pro Image 参数">
-                            <Gemini3ProConfig v-model:imageSize="gemini3ImageSize" v-model:enableGoogleSearch="gemini3EnableGoogleSearch" />
+                    <div v-if="showImageSizeConfig" class="flex flex-col">
+                        <BaseCard title="🧠 图像生成参数">
+                            <Gemini3ProConfig
+                                v-model:imageSize="gemini3ImageSize"
+                                v-model:enableGoogleSearch="gemini3EnableGoogleSearch"
+                                :show-google-search="showGoogleSearchConfig"
+                            />
                         </BaseCard>
                     </div>
                 </div>
@@ -340,6 +344,7 @@ import type {
 } from './types'
 import { DEFAULT_MODEL_ID } from './config/api'
 import { getApiBaseUrl, getDefaultApiBaseUrl, setApiBaseUrl } from './config/client'
+import { normalizeModelId, supportsAspectRatio, supportsGoogleSearch, supportsImageSize } from './shared/modelCapabilities.js'
 
 const theme = ref<'light' | 'dark'>('dark')
 
@@ -847,18 +852,21 @@ const canGenerate = computed(
         !isLoading.value
 )
 
+const currentModelId = computed(() => normalizeModelId(selectedModelId.value || selectedConfig.value?.model || ''))
+
 const showAspectRatioSelector = computed(() => {
-    const modelId = (selectedModelId.value || selectedConfig.value?.model || '').toLowerCase().trim()
-    if (!modelId) return false
-    const segments = modelId.split('/')
-    const normalizedId = segments[segments.length - 1]
-    return normalizedId === 'gemini-2.5-flash-image' || normalizedId === 'gemini-2.5-flash-image-preview' || modelId.includes('gemini-3-pro-image')
+    const modelId = currentModelId.value
+    return supportsAspectRatio(modelId)
 })
 
-const showGemini3ProConfig = computed(() => {
-    const modelId = (selectedModelId.value || selectedConfig.value?.model || '').toLowerCase().trim()
-    if (!modelId) return false
-    return modelId.includes('gemini-3-pro-image')
+const showImageSizeConfig = computed(() => {
+    const modelId = currentModelId.value
+    return supportsImageSize(modelId)
+})
+
+const showGoogleSearchConfig = computed(() => {
+    const modelId = currentModelId.value
+    return supportsGoogleSearch(modelId)
 })
 
 onMounted(async () => {
@@ -1207,8 +1215,8 @@ const buildGeneratePayload = (prompt: string, images: string[]) => {
         images,
         model: selectedModelId.value || selectedConfig.value?.model || DEFAULT_MODEL_ID,
         aspectRatio: showAspectRatioSelector.value ? selectedAspectRatio.value : undefined,
-        imageSize: showGemini3ProConfig.value ? gemini3ImageSize.value : undefined,
-        enableGoogleSearch: showGemini3ProConfig.value ? gemini3EnableGoogleSearch.value : undefined
+        imageSize: showImageSizeConfig.value ? gemini3ImageSize.value : undefined,
+        enableGoogleSearch: showGoogleSearchConfig.value ? gemini3EnableGoogleSearch.value : undefined
     }
 }
 
