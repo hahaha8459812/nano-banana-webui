@@ -77,6 +77,45 @@ const gemini3ProImageData = {
     }
 }
 
+const openAIImageData = {
+    '1K': {
+        '1:1': { width: 1024, height: 1024 },
+        '2:3': { width: 848, height: 1264 },
+        '3:2': { width: 1264, height: 848 },
+        '3:4': { width: 896, height: 1200 },
+        '4:3': { width: 1200, height: 896 },
+        '4:5': { width: 928, height: 1152 },
+        '5:4': { width: 1152, height: 928 },
+        '9:16': { width: 768, height: 1376 },
+        '16:9': { width: 1376, height: 768 },
+        '21:9': { width: 1584, height: 672 }
+    },
+    '2K': {
+        '1:1': { width: 2048, height: 2048 },
+        '2:3': { width: 1696, height: 2528 },
+        '3:2': { width: 2528, height: 1696 },
+        '3:4': { width: 1792, height: 2400 },
+        '4:3': { width: 2400, height: 1792 },
+        '4:5': { width: 1856, height: 2304 },
+        '5:4': { width: 2304, height: 1856 },
+        '9:16': { width: 1536, height: 2752 },
+        '16:9': { width: 2752, height: 1536 },
+        '21:9': { width: 3168, height: 1344 }
+    },
+    '4K': {
+        '1:1': { width: 2880, height: 2880 },
+        '2:3': { width: 2336, height: 3504 },
+        '3:2': { width: 3504, height: 2336 },
+        '3:4': { width: 2448, height: 3264 },
+        '4:3': { width: 3264, height: 2448 },
+        '4:5': { width: 2560, height: 3200 },
+        '5:4': { width: 3200, height: 2560 },
+        '9:16': { width: 2160, height: 3840 },
+        '16:9': { width: 3840, height: 2160 },
+        '21:9': { width: 3696, height: 1584 }
+    }
+}
+
 // 通用宽高比选项（默认/其他模型）
 const defaultAspectRatioOptions: AspectRatioOption[] = [
     { value: '1:1', label: '1:1 - 1024x1024', resolution: '1024x1024' },
@@ -101,6 +140,16 @@ const aspectRatioOptions = computed(() => {
             resolution: `${dimensions.width}x${dimensions.height}`
         }))
     }
+
+    if (props.modelType === 'openai-image' && props.imageSize && openAIImageData[props.imageSize as keyof typeof openAIImageData]) {
+        const sizeData = openAIImageData[props.imageSize as keyof typeof openAIImageData]
+        return Object.entries(sizeData).map(([ratio, dimensions]) => ({
+            value: ratio,
+            label: `${ratio} - ${dimensions.width}x${dimensions.height}`,
+            resolution: `${dimensions.width}x${dimensions.height}`
+        }))
+    }
+
     return defaultAspectRatioOptions
 })
 </script>

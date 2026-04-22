@@ -190,7 +190,11 @@
                 <div v-if="viewMode === 'workspace' && (showAspectRatioSelector || showImageSizeConfig || showOpenAIImageConfig)" class="mb-6 grid grid-cols-1 md:grid-cols-2 gap-4 lg:gap-6">
                     <div v-if="showAspectRatioSelector" class="flex flex-col">
                         <BaseCard title="🧮 图像宽高比">
-                            <AspectRatioSelector v-model="selectedAspectRatio" :model-type="showImageSizeConfig ? 'gemini-3-pro-image' : 'default'" :image-size="gemini3ImageSize" />
+                            <AspectRatioSelector
+                                v-model="selectedAspectRatio"
+                                :model-type="usesOpenAIImageConfig ? 'openai-image' : (showImageSizeConfig ? 'gemini-3-pro-image' : 'default')"
+                                :image-size="usesOpenAIImageConfig ? openAIResolutionTier : gemini3ImageSize"
+                            />
                         </BaseCard>
                     </div>
 
@@ -207,9 +211,7 @@
                     <div v-if="showOpenAIImageConfig" class="flex flex-col md:col-span-2">
                         <BaseCard title="🧠 OpenAI 图像生成参数">
                             <OpenAIImageConfig
-                                v-model:size="openAIImageSize"
-                                v-model:customWidth="openAICustomWidth"
-                                v-model:customHeight="openAICustomHeight"
+                                v-model:imageSize="openAIResolutionTier"
                                 v-model:quality="openAIImageQuality"
                                 v-model:outputFormat="openAIOutputFormat"
                             />
@@ -434,9 +436,7 @@ const textTaskHint = ref<string | null>(null)
 const selectedAspectRatio = ref('1:1')
 const gemini3ImageSize = ref('2K')
 const gemini3EnableGoogleSearch = ref(false)
-const openAIImageSize = ref('auto')
-const openAICustomWidth = ref('')
-const openAICustomHeight = ref('')
+const openAIResolutionTier = ref('2K')
 const openAIImageQuality = ref('auto')
 const openAIOutputFormat = ref('png')
 const isApiConfigMutating = ref(false)
@@ -882,6 +882,9 @@ const currentModelId = computed(() => normalizeModelId(selectedModelId.value || 
 const usesOpenAIImageConfig = computed(() => isOpenAIImageModel(currentModelId.value))
 
 const showAspectRatioSelector = computed(() => {
+    if (usesOpenAIImageConfig.value) {
+        return true
+    }
     const modelId = currentModelId.value
     return supportsAspectRatio(modelId)
 })
@@ -897,49 +900,59 @@ const showGoogleSearchConfig = computed(() => {
 })
 
 const showOpenAIImageConfig = computed(() => usesOpenAIImageConfig.value)
-
-const resolveOpenAICustomSize = () => {
-    if (openAIImageSize.value !== 'custom') {
-        return openAIImageSize.value
+const openAIImageSizeMap: Record<string, Record<string, string>> = {
+    '1K': {
+        '1:1': '1024x1024',
+        '2:3': '848x1264',
+        '3:2': '1264x848',
+        '3:4': '896x1200',
+        '4:3': '1200x896',
+        '4:5': '928x1152',
+        '5:4': '1152x928',
+        '9:16': '768x1376',
+        '16:9': '1376x768',
+        '21:9': '1584x672'
+    },
+    '2K': {
+        '1:1': '2048x2048',
+        '2:3': '1696x2528',
+        '3:2': '2528x1696',
+        '3:4': '1792x2400',
+        '4:3': '2400x1792',
+        '4:5': '1856x2304',
+        '5:4': '2304x1856',
+        '9:16': '1536x2752',
+        '16:9': '2752x1536',
+        '21:9': '3168x1344'
+    },
+    '4K': {
+        '1:1': '2880x2880',
+        '2:3': '2336x3504',
+        '3:2': '3504x2336',
+        '3:4': '2448x3264',
+        '4:3': '3264x2448',
+        '4:5': '2560x3200',
+        '5:4': '3200x2560',
+        '9:16': '2160x3840',
+        '16:9': '3840x2160',
+        '21:9': '3696x1584'
     }
+}
 
-    const width = Number(openAICustomWidth.value)
-    const height = Number(openAICustomHeight.value)
-    if (!Number.isInteger(width) || !Number.isInteger(height) || width <= 0 || height <= 0) {
+const resolveOpenAIImageSize = () => {
+    const ratioMap = openAIImageSizeMap[openAIResolutionTier.value]
+    if (!ratioMap) {
         return ''
     }
-    return `${width}x${height}`
+    return ratioMap[selectedAspectRatio.value] || ''
 }
 
-const getOpenAIImageConfigError = () => {
-    if (!usesOpenAIImageConfig.value) return ''
-    if (openAIImageSize.value !== 'custom') return ''
-
-    const width = Number(openAICustomWidth.value)
-    const height = Number(openAICustomHeight.value)
-
-    if (!Number.isInteger(width) || !Number.isInteger(height) || width <= 0 || height <= 0) {
-        return '请输入有效的自定义尺寸'
+const hasValidCurrentImageConfig = computed(() => {
+    if (!usesOpenAIImageConfig.value) {
+        return true
     }
-    if (width % 16 !== 0 || height % 16 !== 0) {
-        return '自定义尺寸必须是 16 的倍数'
-    }
-    if (Math.max(width, height) > 3840) {
-        return '自定义尺寸最大边不能超过 3840px'
-    }
-    if (Math.max(width, height) / Math.min(width, height) > 3) {
-        return '自定义尺寸比例不能超过 3:1'
-    }
-
-    const pixels = width * height
-    if (pixels < 655_360 || pixels > 8_294_400) {
-        return '自定义尺寸总像素数超出 OpenAI 支持范围'
-    }
-
-    return ''
-}
-
-const hasValidCurrentImageConfig = computed(() => !getOpenAIImageConfigError())
+    return Boolean(resolveOpenAIImageSize())
+})
 
 onMounted(async () => {
     if (authToken.value) {
@@ -1301,7 +1314,7 @@ const buildGeneratePayload = (prompt: string, images: string[]) => {
         aspectRatio: undefined,
         imageSize: undefined,
         enableGoogleSearch: undefined,
-        size: resolveOpenAICustomSize(),
+        size: resolveOpenAIImageSize(),
         quality: openAIImageQuality.value as 'auto' | 'low' | 'medium' | 'high',
         outputFormat: openAIOutputFormat.value
     }
