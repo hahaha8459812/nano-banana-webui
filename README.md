@@ -92,7 +92,7 @@ location /api/ {
 ```
 
 上游超时/重试：
-- `UPSTREAM_TIMEOUT_MS`（默认 180000）
+- `UPSTREAM_TIMEOUT_MS`（默认 900000）
 - `UPSTREAM_RETRIES`（默认 1）
 - `UPSTREAM_RETRY_DELAY_MS`（默认 800）
 

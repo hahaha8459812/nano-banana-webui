@@ -26,7 +26,7 @@ const PORT = process.env.PORT || 51130
 
 const app = express()
 
-const DEFAULT_UPSTREAM_TIMEOUT_MS = Number(process.env.UPSTREAM_TIMEOUT_MS || 180_000)
+const DEFAULT_UPSTREAM_TIMEOUT_MS = Number(process.env.UPSTREAM_TIMEOUT_MS || 900_000)
 const DEFAULT_UPSTREAM_RETRIES = Number(process.env.UPSTREAM_RETRIES || 1)
 const DEFAULT_UPSTREAM_RETRY_DELAY_MS = Number(process.env.UPSTREAM_RETRY_DELAY_MS || 800)
 const MAX_CONCURRENT_TASKS = Number(process.env.MAX_CONCURRENT_TASKS || 1)
