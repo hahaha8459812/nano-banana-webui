@@ -1,6 +1,6 @@
 services:
   backend:
-    image: xxxiechenxx/nano-banana-webui:latest
+    image: ghcr.io/hahaha8459812/nano-banana-webui:latest
     container_name: image-studio
     networks:
       - nano-banana-net

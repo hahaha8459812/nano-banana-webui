@@ -2,7 +2,8 @@ export const MODEL_CAPABILITY_RULES = {
     aspectRatioExactTailIds: ['gemini-2.5-flash-image', 'gemini-2.5-flash-image-preview'],
     aspectRatioSubstrings: ['gemini-3-pro-image', 'gemini-3.1-flash-image'],
     imageSizeSubstrings: ['gemini-3-pro-image', 'gemini-3.1-flash-image'],
-    googleSearchSubstrings: ['gemini-3-pro-image']
+    googleSearchSubstrings: ['gemini-3-pro-image'],
+    openAIImagePrefixes: ['gpt-image-']
 }
 
 export function normalizeModelId(modelId) {
@@ -40,4 +41,18 @@ export function supportsGoogleSearch(modelId) {
     const normalized = normalizeModelId(modelId)
     if (!normalized) return false
     return matchesAnySubstring(normalized, MODEL_CAPABILITY_RULES.googleSearchSubstrings)
+}
+
+export function isOpenAIImageModel(modelId) {
+    const tailId = getModelTailId(modelId)
+    if (!tailId) return false
+    return MODEL_CAPABILITY_RULES.openAIImagePrefixes.some(prefix => tailId.startsWith(prefix))
+}
+
+export function supportsOpenAIImageOptions(modelId) {
+    return isOpenAIImageModel(modelId)
+}
+
+export function supportsOpenAITransparentBackground(_modelId) {
+    return false
 }

@@ -6,6 +6,10 @@ export interface GenerateRequest {
     aspectRatio?: string
     imageSize?: string
     enableGoogleSearch?: boolean
+    outputFormat?: 'png' | 'jpeg' | 'webp'
+    quality?: 'auto' | 'low' | 'medium' | 'high'
+    background?: 'auto' | 'opaque' | 'transparent'
+    size?: string
     includeImageData?: boolean
 }
 
@@ -31,6 +35,10 @@ export interface GenerateTask {
         aspectRatio?: string
         imageSize?: string
         enableGoogleSearch?: boolean
+        outputFormat?: string
+        quality?: string
+        background?: string
+        size?: string
         promptLength?: number
         imagesCount?: number
     }

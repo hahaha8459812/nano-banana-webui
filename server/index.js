@@ -8,7 +8,7 @@ import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
 import { v4 as uuid } from 'uuid'
 import sharp from 'sharp'
-import { normalizeModelId, supportsGoogleSearch, supportsImageSize } from '../src/shared/modelCapabilities.js'
+import { isOpenAIImageModel, normalizeModelId, supportsGoogleSearch, supportsImageSize } from '../src/shared/modelCapabilities.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -406,6 +406,10 @@ function createTaskState({ requestId, token, payload }) {
             aspectRatio: payload.aspectRatio || '',
             imageSize: payload.imageSize || '',
             enableGoogleSearch: Boolean(payload.enableGoogleSearch),
+            outputFormat: payload.outputFormat || '',
+            quality: payload.quality || '',
+            background: payload.background || '',
+            size: payload.size || '',
             promptLength: typeof payload.prompt === 'string' ? payload.prompt.length : 0,
             imagesCount: Array.isArray(payload.images) ? payload.images.length : 0
         },
@@ -466,6 +470,13 @@ async function runTask(taskId) {
         if (!apiConfig) {
             throw new Error('找不到对应的 API 配置')
         }
+        const resolvedModel = task.rawPayload.model || apiConfig.model
+        if (isOpenAIImageModel(resolvedModel)) {
+            const openAIImageError = validateOpenAIImagePayload(task.rawPayload)
+            if (openAIImageError) {
+                throw new Error(openAIImageError)
+            }
+        }
 
         const upstreamStart = Date.now()
         logInfo(
@@ -474,12 +485,16 @@ async function runTask(taskId) {
             {
                 apiConfigId: apiConfig.id,
                 apiConfigLabel: apiConfig.label,
-                model: task.rawPayload.model || apiConfig.model,
+                model: resolvedModel,
                 promptLength: task.payload?.promptLength || 0,
                 imagesCount: task.payload?.imagesCount || 0,
                 aspectRatio: task.rawPayload.aspectRatio || '',
                 imageSize: task.rawPayload.imageSize || '',
-                enableGoogleSearch: Boolean(task.rawPayload.enableGoogleSearch)
+                enableGoogleSearch: Boolean(task.rawPayload.enableGoogleSearch),
+                outputFormat: task.rawPayload.outputFormat || '',
+                quality: task.rawPayload.quality || '',
+                background: task.rawPayload.background || '',
+                size: task.rawPayload.size || ''
             },
             task.requestId
         )
@@ -488,10 +503,14 @@ async function runTask(taskId) {
                 apiConfig,
                 prompt: task.rawPayload.prompt,
                 images: task.rawPayload.images || [],
-                model: task.rawPayload.model || apiConfig.model,
+                model: resolvedModel,
                 aspectRatio: task.rawPayload.aspectRatio,
                 imageSize: task.rawPayload.imageSize,
-                enableGoogleSearch: task.rawPayload.enableGoogleSearch
+                enableGoogleSearch: task.rawPayload.enableGoogleSearch,
+                outputFormat: task.rawPayload.outputFormat,
+                quality: task.rawPayload.quality,
+                background: task.rawPayload.background,
+                size: task.rawPayload.size
             },
             task.requestId,
             abortController.signal
@@ -916,6 +935,10 @@ app.post('/api/generate/task', authMiddleware, async (req, res) => {
     if (!payload.configId) {
         return res.status(400).json({ message: '必须指定 API 配置' })
     }
+    const payloadError = validateGeneratePayload(payload)
+    if (payloadError) {
+        return res.status(400).json({ message: payloadError })
+    }
     try {
         const summary = {
             configId: payload.configId || '',
@@ -924,7 +947,11 @@ app.post('/api/generate/task', authMiddleware, async (req, res) => {
             imagesCount: Array.isArray(payload.images) ? payload.images.length : 0,
             aspectRatio: payload.aspectRatio || '',
             imageSize: payload.imageSize || '',
-            enableGoogleSearch: Boolean(payload.enableGoogleSearch)
+            enableGoogleSearch: Boolean(payload.enableGoogleSearch),
+            outputFormat: payload.outputFormat || '',
+            quality: payload.quality || '',
+            background: payload.background || '',
+            size: payload.size || ''
         }
         logInfo('生成', '收到生成任务请求', summary, req.requestId)
         const task = createTaskState({ requestId: req.requestId, token: '', payload })
@@ -1063,13 +1090,285 @@ function resolveModelsEndpoint(endpoint) {
     }
 }
 
-async function generateImage({ apiConfig, prompt, images, model, aspectRatio, imageSize, enableGoogleSearch }, requestId, signal) {
+const OPENAI_IMAGE_SIZE_PRESETS = new Set([
+    'auto',
+    '1024x1024',
+    '1536x1024',
+    '1024x1536',
+    '2048x2048',
+    '2048x1152',
+    '3840x2160',
+    '2160x3840'
+])
+const OPENAI_IMAGE_QUALITY_OPTIONS = new Set(['auto', 'low', 'medium', 'high'])
+const OPENAI_IMAGE_FORMAT_OPTIONS = new Set(['png', 'jpeg', 'webp'])
+const OPENAI_IMAGE_BACKGROUND_OPTIONS = new Set(['auto', 'opaque', 'transparent'])
+const MIN_OPENAI_IMAGE_PIXELS = 655_360
+const MAX_OPENAI_IMAGE_PIXELS = 8_294_400
+const MAX_OPENAI_IMAGE_EDGE = 3840
+const MAX_OPENAI_IMAGE_RATIO = 3
+
+function validateGeneratePayload(payload) {
+    const prompt = typeof payload.prompt === 'string' ? payload.prompt.trim() : ''
+    const images = Array.isArray(payload.images) ? payload.images : []
+    if (!prompt && !images.length) {
+        return '缺少提示词或参考图像'
+    }
+    if (payload.images !== undefined && !Array.isArray(payload.images)) {
+        return 'images 必须是数组'
+    }
+
+    if (!isOpenAIImageModel(payload.model || '')) {
+        return ''
+    }
+
+    return validateOpenAIImagePayload(payload)
+}
+
+function validateOpenAIImagePayload(payload) {
+    const sizeError = validateOpenAIImageSize(payload.size || 'auto')
+    if (sizeError) return sizeError
+
+    const quality = payload.quality || 'auto'
+    if (!OPENAI_IMAGE_QUALITY_OPTIONS.has(quality)) {
+        return 'OpenAI 图像质量参数不支持'
+    }
+
+    const outputFormat = payload.outputFormat || 'png'
+    if (!OPENAI_IMAGE_FORMAT_OPTIONS.has(outputFormat)) {
+        return 'OpenAI 输出格式仅支持 png、jpeg、webp'
+    }
+
+    const background = payload.background || 'auto'
+    if (!OPENAI_IMAGE_BACKGROUND_OPTIONS.has(background)) {
+        return 'OpenAI 背景参数不支持'
+    }
+    if (background === 'transparent') {
+        return '当前 gpt-image 模型暂不支持透明背景'
+    }
+
+    return ''
+}
+
+function validateOpenAIImageSize(size) {
+    if (!size || OPENAI_IMAGE_SIZE_PRESETS.has(size)) {
+        return ''
+    }
+
+    const match = String(size).match(/^(\d+)x(\d+)$/)
+    if (!match) {
+        return 'OpenAI 图像尺寸格式必须是 auto 或 宽x高'
+    }
+
+    const width = Number(match[1])
+    const height = Number(match[2])
+    if (!Number.isInteger(width) || !Number.isInteger(height) || width <= 0 || height <= 0) {
+        return 'OpenAI 图像宽高必须是正整数'
+    }
+    if (width % 16 !== 0 || height % 16 !== 0) {
+        return 'OpenAI 图像宽高都必须是 16 的倍数'
+    }
+    if (Math.max(width, height) > MAX_OPENAI_IMAGE_EDGE) {
+        return 'OpenAI 图像最大边不能超过 3840px'
+    }
+    if (Math.max(width, height) / Math.min(width, height) > MAX_OPENAI_IMAGE_RATIO) {
+        return 'OpenAI 图像长边与短边比例不能超过 3:1'
+    }
+
+    const pixels = width * height
+    if (pixels < MIN_OPENAI_IMAGE_PIXELS || pixels > MAX_OPENAI_IMAGE_PIXELS) {
+        return 'OpenAI 图像总像素数必须在 655360 到 8294400 之间'
+    }
+
+    return ''
+}
+
+function resolveOpenAIImageEndpoint(endpoint, mode) {
+    const target = mode === 'edit' ? 'edits' : 'generations'
+    try {
+        const url = new URL(endpoint)
+        const pathname = url.pathname.replace(/\/+$/, '')
+
+        if (/\/images\/(generations|edits)$/i.test(pathname)) {
+            url.pathname = pathname.replace(/\/images\/(generations|edits)$/i, `/images/${target}`)
+            return url.toString()
+        }
+        if (/\/chat\/completions$/i.test(pathname)) {
+            url.pathname = pathname.replace(/\/chat\/completions$/i, `/images/${target}`)
+            return url.toString()
+        }
+        if (/\/responses$/i.test(pathname)) {
+            url.pathname = pathname.replace(/\/responses$/i, `/images/${target}`)
+            return url.toString()
+        }
+        if (/\/images$/i.test(pathname)) {
+            url.pathname = `${pathname}/${target}`
+            return url.toString()
+        }
+        if (/\/v\d+$/i.test(pathname)) {
+            url.pathname = `${pathname}/images/${target}`
+            return url.toString()
+        }
+
+        url.pathname = `${pathname}/images/${target}`
+        return url.toString()
+    } catch (error) {
+        console.warn('[openai-images] 无法解析 endpoint，将采用默认拼接规则', error)
+        return `${endpoint.replace(/\/+$/, '')}/images/${target}`
+    }
+}
+
+async function generateImage({ apiConfig, prompt, images, model, aspectRatio, imageSize, enableGoogleSearch, outputFormat, quality, background, size }, requestId, signal) {
     if (!prompt && (!images || !images.length)) {
         throw new Error('缺少提示词或参考图像')
     }
 
     const resolvedModel = model || apiConfig.model
     const normalizedModelId = normalizeModelId(resolvedModel)
+    if (isOpenAIImageModel(normalizedModelId)) {
+        return generateOpenAIImage(
+            {
+                apiConfig,
+                prompt,
+                images: images || [],
+                model: resolvedModel,
+                outputFormat: outputFormat || 'png',
+                quality: quality || 'auto',
+                background: background || 'auto',
+                size: size || 'auto'
+            },
+            requestId,
+            signal
+        )
+    }
+
+    return generateChatCompatibleImage(
+        {
+            apiConfig,
+            prompt,
+            images: images || [],
+            model: resolvedModel,
+            aspectRatio,
+            imageSize,
+            enableGoogleSearch
+        },
+        signal
+    )
+}
+
+async function generateOpenAIImage({ apiConfig, prompt, images, model, outputFormat, quality, background, size }, requestId, signal) {
+    const mode = images.length ? 'edit' : 'generation'
+    const endpoint = resolveOpenAIImageEndpoint(apiConfig.endpoint, mode)
+    const commonFields = {
+        model,
+        prompt,
+        size,
+        quality,
+        output_format: outputFormat
+    }
+
+    if (background && background !== 'auto') {
+        commonFields.background = background
+    }
+
+    const requestOptions = images.length
+        ? await buildOpenAIImageEditRequest(commonFields, images, apiConfig.apiKey, signal)
+        : {
+              method: 'POST',
+              headers: {
+                  Authorization: `Bearer ${apiConfig.apiKey}`,
+                  'Content-Type': 'application/json'
+              },
+              body: JSON.stringify(commonFields),
+              signal
+          }
+
+    const response = await fetchWithRetry(
+        endpoint,
+        requestOptions,
+        { timeoutMs: DEFAULT_UPSTREAM_TIMEOUT_MS, retries: DEFAULT_UPSTREAM_RETRIES, retryDelayMs: DEFAULT_UPSTREAM_RETRY_DELAY_MS }
+    )
+
+    if (!response.ok) {
+        const text = await response.text()
+        throw new Error(`OpenAI Images API 请求失败 ${response.status}: ${text}`)
+    }
+
+    const data = await response.json()
+    const imageCandidates = extractImagesFromOpenAIImagesResponse(data, outputFormat)
+    if (!imageCandidates.length) {
+        throw new Error('OpenAI Images API 未返回图像')
+    }
+
+    const revisedPrompts = Array.isArray(data.data) ? data.data.map(item => item?.revised_prompt).filter(Boolean) : []
+    logInfo(
+        '生成',
+        'OpenAI Images API 返回完成',
+        { endpoint, mode, outputFormat, quality, size, candidates: imageCandidates.length },
+        requestId
+    )
+
+    return {
+        imageUrl: imageCandidates[0],
+        imageCandidates,
+        textResponse: revisedPrompts.join('\n'),
+        modelUsed: model,
+        aspectRatioUsed: '',
+        imageSizeUsed: size
+    }
+}
+
+async function buildOpenAIImageEditRequest(fields, images, apiKey, signal) {
+    const form = new FormData()
+    Object.entries(fields).forEach(([key, value]) => {
+        if (value !== undefined && value !== null && value !== '') {
+            form.append(key, String(value))
+        }
+    })
+
+    for (let index = 0; index < images.length; index++) {
+        const file = await createImageUploadFile(images[index], index)
+        form.append('image[]', file.blob, file.fileName)
+    }
+
+    return {
+        method: 'POST',
+        headers: {
+            Authorization: `Bearer ${apiKey}`
+        },
+        body: form,
+        signal
+    }
+}
+
+async function createImageUploadFile(imageSource, index) {
+    const image = await downloadImage(imageSource)
+    const mimeType = image.mimeType || getMimeTypeByExtension(image.extension)
+    return {
+        blob: new Blob([image.buffer], { type: mimeType }),
+        fileName: `reference-${index + 1}.${image.extension || 'png'}`
+    }
+}
+
+function extractImagesFromOpenAIImagesResponse(data, outputFormat) {
+    if (!Array.isArray(data?.data)) return []
+
+    const mimeType = getMimeTypeByExtension(outputFormat || 'png')
+    return data.data
+        .flatMap(item => {
+            if (typeof item?.url === 'string' && item.url.trim()) {
+                return [item.url.trim()]
+            }
+            if (typeof item?.b64_json === 'string' && item.b64_json.trim()) {
+                return [toDataUrl(item.b64_json.trim(), mimeType)]
+            }
+            return []
+        })
+        .filter(Boolean)
+}
+
+async function generateChatCompatibleImage({ apiConfig, prompt, images, model, aspectRatio, imageSize, enableGoogleSearch }, signal) {
+    const normalizedModelId = normalizeModelId(model)
     const messageContent =
         !images || images.length === 0
             ? prompt
@@ -1083,7 +1382,7 @@ async function generateImage({ apiConfig, prompt, images, model, aspectRatio, im
 
     const messages = [{ role: 'user', content: messageContent }]
     const payload = {
-        model: resolvedModel,
+        model,
         messages,
         modalities: ['image', 'text']
     }
@@ -1141,7 +1440,7 @@ async function generateImage({ apiConfig, prompt, images, model, aspectRatio, im
         imageUrl,
         imageCandidates,
         textResponse,
-        modelUsed: resolvedModel,
+        modelUsed: model,
         aspectRatioUsed: aspectRatio,
         imageSizeUsed: imageSize
     }
@@ -1331,6 +1630,14 @@ function isLikelyImageUrl(url) {
     return /^https?:\/\//i.test(url) || url.startsWith('data:image/')
 }
 
+function getMimeTypeByExtension(extension = 'png') {
+    const normalized = String(extension).toLowerCase().replace(/^jpg$/, 'jpeg')
+    if (normalized === 'jpeg') return 'image/jpeg'
+    if (normalized === 'webp') return 'image/webp'
+    if (normalized === 'gif') return 'image/gif'
+    return 'image/png'
+}
+
 function toDataUrl(base64Content, mimeType = 'image/png') {
     const normalized = base64Content.trim()
     if (normalized.startsWith('data:image/')) {
@@ -1477,11 +1784,13 @@ async function saveImagesToGallery(imageSources, requestId, { includeImageData }
 async function downloadImage(imageSource) {
     let buffer
     let extension = 'png'
+    let mimeType = 'image/png'
 
     if (typeof imageSource === 'string' && imageSource.startsWith('data:')) {
         const match = imageSource.match(/^data:image\/([a-zA-Z0-9+]+);base64,(.+)$/)
         if (match) {
             extension = match[1]
+            mimeType = getMimeTypeByExtension(match[1])
             buffer = Buffer.from(match[2], 'base64')
         } else {
             throw new Error('无法解析 data URL 图片')
@@ -1494,11 +1803,12 @@ async function downloadImage(imageSource) {
         const contentType = response.headers.get('content-type')
         if (contentType && contentType.includes('/')) {
             extension = contentType.split('/')[1].split(';')[0]
+            mimeType = contentType.split(';')[0]
         }
         buffer = Buffer.from(await response.arrayBuffer())
     }
 
-    return { buffer, extension, byteLength: buffer.length }
+    return { buffer, extension, mimeType, byteLength: buffer.length }
 }
 
 async function generateThumbnailFromPrimary(buffer, thumbnailPath, requestId) {

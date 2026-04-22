@@ -187,7 +187,7 @@
                 </div>
 
                 <!-- Shared Configuration Section -->
-                <div v-if="viewMode === 'workspace' && (showAspectRatioSelector || showImageSizeConfig)" class="mb-6 grid grid-cols-1 md:grid-cols-2 gap-4 lg:gap-6">
+                <div v-if="viewMode === 'workspace' && (showAspectRatioSelector || showImageSizeConfig || showOpenAIImageConfig)" class="mb-6 grid grid-cols-1 md:grid-cols-2 gap-4 lg:gap-6">
                     <div v-if="showAspectRatioSelector" class="flex flex-col">
                         <BaseCard title="🧮 图像宽高比">
                             <AspectRatioSelector v-model="selectedAspectRatio" :model-type="showImageSizeConfig ? 'gemini-3-pro-image' : 'default'" :image-size="gemini3ImageSize" />
@@ -200,6 +200,18 @@
                                 v-model:imageSize="gemini3ImageSize"
                                 v-model:enableGoogleSearch="gemini3EnableGoogleSearch"
                                 :show-google-search="showGoogleSearchConfig"
+                            />
+                        </BaseCard>
+                    </div>
+
+                    <div v-if="showOpenAIImageConfig" class="flex flex-col md:col-span-2">
+                        <BaseCard title="🧠 OpenAI 图像生成参数">
+                            <OpenAIImageConfig
+                                v-model:size="openAIImageSize"
+                                v-model:customWidth="openAICustomWidth"
+                                v-model:customHeight="openAICustomHeight"
+                                v-model:quality="openAIImageQuality"
+                                v-model:outputFormat="openAIOutputFormat"
                             />
                         </BaseCard>
                     </div>
@@ -303,6 +315,7 @@ import StylePromptSelector from './components/StylePromptSelector.vue'
 import ResultDisplay from './components/ResultDisplay.vue'
 import AspectRatioSelector from './components/AspectRatioSelector.vue'
 import Gemini3ProConfig from './components/Gemini3ProConfig.vue'
+import OpenAIImageConfig from './components/OpenAIImageConfig.vue'
 import GalleryView from './components/GalleryView.vue'
 import GalleryDetailModal from './components/GalleryDetailModal.vue'
 import LogsView from './components/LogsView.vue'
@@ -344,7 +357,13 @@ import type {
 } from './types'
 import { DEFAULT_MODEL_ID } from './config/api'
 import { getApiBaseUrl, getDefaultApiBaseUrl, setApiBaseUrl } from './config/client'
-import { normalizeModelId, supportsAspectRatio, supportsGoogleSearch, supportsImageSize } from './shared/modelCapabilities.js'
+import {
+    isOpenAIImageModel,
+    normalizeModelId,
+    supportsAspectRatio,
+    supportsGoogleSearch,
+    supportsImageSize
+} from './shared/modelCapabilities.js'
 
 const theme = ref<'light' | 'dark'>('dark')
 
@@ -415,6 +434,11 @@ const textTaskHint = ref<string | null>(null)
 const selectedAspectRatio = ref('1:1')
 const gemini3ImageSize = ref('2K')
 const gemini3EnableGoogleSearch = ref(false)
+const openAIImageSize = ref('auto')
+const openAICustomWidth = ref('')
+const openAICustomHeight = ref('')
+const openAIImageQuality = ref('auto')
+const openAIOutputFormat = ref('png')
 const isApiConfigMutating = ref(false)
 type ApiConfigFormPayload = {
     id: string
@@ -839,6 +863,7 @@ const canGenerateTextImage = computed(
         selectedConfigId.value &&
         (selectedModelId.value || selectedConfig.value?.model) &&
         textToImagePrompt.value.trim() &&
+        hasValidCurrentImageConfig.value &&
         !isTextToImageLoading.value
 )
 
@@ -849,10 +874,12 @@ const canGenerate = computed(
         (selectedModelId.value || selectedConfig.value?.model) &&
         selectedImages.value.length > 0 &&
         (selectedStyle.value || customPrompt.value.trim()) &&
+        hasValidCurrentImageConfig.value &&
         !isLoading.value
 )
 
 const currentModelId = computed(() => normalizeModelId(selectedModelId.value || selectedConfig.value?.model || ''))
+const usesOpenAIImageConfig = computed(() => isOpenAIImageModel(currentModelId.value))
 
 const showAspectRatioSelector = computed(() => {
     const modelId = currentModelId.value
@@ -868,6 +895,51 @@ const showGoogleSearchConfig = computed(() => {
     const modelId = currentModelId.value
     return supportsGoogleSearch(modelId)
 })
+
+const showOpenAIImageConfig = computed(() => usesOpenAIImageConfig.value)
+
+const resolveOpenAICustomSize = () => {
+    if (openAIImageSize.value !== 'custom') {
+        return openAIImageSize.value
+    }
+
+    const width = Number(openAICustomWidth.value)
+    const height = Number(openAICustomHeight.value)
+    if (!Number.isInteger(width) || !Number.isInteger(height) || width <= 0 || height <= 0) {
+        return ''
+    }
+    return `${width}x${height}`
+}
+
+const getOpenAIImageConfigError = () => {
+    if (!usesOpenAIImageConfig.value) return ''
+    if (openAIImageSize.value !== 'custom') return ''
+
+    const width = Number(openAICustomWidth.value)
+    const height = Number(openAICustomHeight.value)
+
+    if (!Number.isInteger(width) || !Number.isInteger(height) || width <= 0 || height <= 0) {
+        return '请输入有效的自定义尺寸'
+    }
+    if (width % 16 !== 0 || height % 16 !== 0) {
+        return '自定义尺寸必须是 16 的倍数'
+    }
+    if (Math.max(width, height) > 3840) {
+        return '自定义尺寸最大边不能超过 3840px'
+    }
+    if (Math.max(width, height) / Math.min(width, height) > 3) {
+        return '自定义尺寸比例不能超过 3:1'
+    }
+
+    const pixels = width * height
+    if (pixels < 655_360 || pixels > 8_294_400) {
+        return '自定义尺寸总像素数超出 OpenAI 支持范围'
+    }
+
+    return ''
+}
+
+const hasValidCurrentImageConfig = computed(() => !getOpenAIImageConfigError())
 
 onMounted(async () => {
     if (authToken.value) {
@@ -1209,14 +1281,29 @@ const buildPrompt = () => {
 }
 
 const buildGeneratePayload = (prompt: string, images: string[]) => {
-    return {
+    const model = selectedModelId.value || selectedConfig.value?.model || DEFAULT_MODEL_ID
+    const payload = {
         configId: selectedConfigId.value || '',
         prompt,
         images,
-        model: selectedModelId.value || selectedConfig.value?.model || DEFAULT_MODEL_ID,
+        model,
         aspectRatio: showAspectRatioSelector.value ? selectedAspectRatio.value : undefined,
         imageSize: showImageSizeConfig.value ? gemini3ImageSize.value : undefined,
         enableGoogleSearch: showGoogleSearchConfig.value ? gemini3EnableGoogleSearch.value : undefined
+    }
+
+    if (!isOpenAIImageModel(model)) {
+        return payload
+    }
+
+    return {
+        ...payload,
+        aspectRatio: undefined,
+        imageSize: undefined,
+        enableGoogleSearch: undefined,
+        size: resolveOpenAICustomSize(),
+        quality: openAIImageQuality.value as 'auto' | 'low' | 'medium' | 'high',
+        outputFormat: openAIOutputFormat.value
     }
 }
 

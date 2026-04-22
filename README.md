@@ -31,6 +31,10 @@ cp server/config/app.config.example.json server/config/app.config.json
 docker compose up -d --build
 ```
 
+GitHub Container Registry 镜像：
+- `ghcr.io/hahaha8459812/nano-banana-webui:latest`
+- 推送到 `main` 或手动触发 GitHub Actions 后会自动构建并发布
+
 - 访问：`http://<服务器IP>:51130/webui`
 - 持久化（compose 已挂载）：
   - `./server/config/app.config.json`（敏感配置）
